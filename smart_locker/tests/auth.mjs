@@ -10,7 +10,7 @@ function scenario({ mode, session = null, configured = true, protectedPage = fal
     const attributes = {};
     const button = { disabled: false, setAttribute(name) { attributes[name] = true; if (name === 'disabled') this.disabled = true; }, removeAttribute(name) { delete attributes[name]; } };
     const output = { textContent: '', classList: { toggle() {} } };
-    const fields = { email: 'user@example.test', password: 'a-strong-password', name: 'Test User', company_name: 'Test Company', password_confirm: 'a-strong-password' };
+    const fields = { email: 'user@example.test', password: 'a-strong-password', name: 'Test User', company_name: 'Test Company', account_type: 'company', password_confirm: 'a-strong-password' };
     const form = { dataset: { authForm: mode }, events: {}, resetCount: 0,
         querySelector(selector) { return selector === '[data-auth-message]' ? output : button; },
         addEventListener(event, fn) { this.events[event] = fn; }, reset() { this.resetCount++; } };
@@ -64,6 +64,14 @@ assert(s.output.textContent.includes('email') && s.form.resetCount === 1 && !s.c
 const signup = s.calls.find(c => c[0] === 'signUp')[1];
 assert.equal(signup.options.emailRedirectTo, 'http://localhost:8000/smart_locker/auth-callback.php'); checks++;
 assert.equal(signup.options.data.company_name, 'Test Company'); checks++;
+assert.equal(signup.options.data.account_type, 'company'); checks++;
+s = scenario({ mode: 'register' }); s.fields.account_type = 'company'; s.fields.company_name = ''; await s.window.SmartLockerAuth.ready; await s.submit();
+assert(s.output.textContent.includes('tên công ty') && !s.calls.some(c => c[0] === 'signUp')); checks++;
+s = scenario({ mode: 'register', responses: { signUp: { data: { session: null }, error: null } } }); s.fields.account_type = 'user'; s.fields.company_name = ''; await s.window.SmartLockerAuth.ready; await s.submit();
+assert.equal(s.calls.find(c => c[0] === 'signUp')[1].options.data.account_type, 'user'); checks++;
+assert.equal(s.window.SmartLockerAuth.resolveAccountType({ user_metadata: { account_type: 'user', company_name: 'ACME' } }), 'user'); checks++;
+assert.equal(s.window.SmartLockerAuth.resolveAccountType({ user_metadata: { account_type: 'company' } }), 'company'); checks++;
+assert.equal(s.window.SmartLockerAuth.resolveAccountType({ user_metadata: {} }), 'user'); checks++;
 s = scenario({ mode: 'register' }); await s.window.SmartLockerAuth.ready; await s.submit();
 assert(s.calls.some(c => c[0] === 'assign' && c[1] === 'dashboard.php')); checks++;
 s = scenario({ mode: 'forgot' }); await s.window.SmartLockerAuth.ready; await s.submit();

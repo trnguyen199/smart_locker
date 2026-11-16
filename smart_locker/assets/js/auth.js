@@ -34,30 +34,131 @@ window.SmartLockerAuth = (() => {
         };
         return messages[error?.code] || (error instanceof TypeError ? 'Không thể kết nối máy chủ đăng nhập. Vui lòng kiểm tra Internet.' : error?.message) || 'Không thể đăng nhập. Vui lòng thử lại.';
     }
+    const HINT_KEY = 'smart_locker_session_hint';
+    function saveSessionHint(payload) {
+        try {
+            if (typeof localStorage === 'undefined') return;
+            if (!payload) localStorage.removeItem(HINT_KEY);
+            else localStorage.setItem(HINT_KEY, JSON.stringify(payload));
+        } catch (_) {}
+    }
+    function resolveAccountType(user) {
+        const metadata = user?.user_metadata || {};
+        if (metadata.account_type === 'company' || metadata.account_type === 'user') return metadata.account_type;
+        return typeof metadata.company_name === 'string' && metadata.company_name.trim() ? 'company' : 'user';
+    }
     function hydrateUser(user) {
         const metadata = user?.user_metadata || {};
         const fullName = typeof metadata.full_name === 'string' ? metadata.full_name : '';
         const fallbackName = typeof metadata.name === 'string' ? metadata.name : '';
         const name = fullName.trim() || fallbackName.trim() || user?.email?.split('@')[0] || 'Bạn';
-        const company = typeof metadata.company_name === 'string' && metadata.company_name.trim() ? metadata.company_name : 'Không gian doanh nghiệp';
+        const accountType = user ? resolveAccountType(user) : 'user';
+        const isCompany = Boolean(user && accountType === 'company');
+        const company = typeof metadata.company_name === 'string' ? metadata.company_name.trim() : '';
+        const companyDisplay = company || (isCompany ? 'Không gian doanh nghiệp' : 'Chưa liên kết công ty');
+        const workspaceLabel = isCompany ? companyDisplay : 'Không gian người dùng';
+        const workspaceRole = isCompany ? 'Không gian doanh nghiệp · Quản trị' : (company ? 'Thành viên · ' + company : 'Tài khoản cá nhân');
         const words = name.trim().split(/\s+/u);
         const initials = ((words[0]?.[0] || 'S') + (words.length > 1 ? words.at(-1)[0] : '')).toUpperCase();
-        for (const [selector, text] of [['[data-user-name]',name],['[data-user-email]',user?.email || ''],['[data-user-initials]',initials],['[data-company-name]',company]]) {
+        saveSessionHint(user ? { name, email: user.email || '', initials, accountType, company } : null);
+        for (const [selector, text] of [
+            ['[data-user-name]', name],
+            ['[data-user-email]', user?.email || ''],
+            ['[data-user-initials]', initials],
+            ['[data-company-name]', companyDisplay],
+            ['[data-workspace-label]', workspaceLabel],
+            ['[data-workspace-role]', workspaceRole],
+            ['[data-workspace-crumb]', isCompany ? 'Không gian doanh nghiệp' : 'Không gian người dùng'],
+            ['[data-account-type-label]', isCompany ? 'Doanh nghiệp (Quản trị)' : 'Người dùng'],
+            ['[data-workspace-panel-title]', isCompany ? 'Không gian doanh nghiệp' : 'Không gian người dùng'],
+        ]) {
             document.querySelectorAll(selector).forEach(element => { if (element.matches('input')) element.value = text; else element.textContent = text; });
         }
         document.querySelectorAll('[data-user-only]').forEach(element => { element.hidden = !user; });
         document.querySelectorAll('[data-guest-only]').forEach(element => { element.hidden = Boolean(user); });
+        document.querySelectorAll('[data-company-only]').forEach(element => { element.hidden = !isCompany; });
+        document.querySelectorAll('[data-personal-only]').forEach(element => { element.hidden = !user || isCompany; });
+        if (document.body?.dataset) {
+            document.body.dataset.accountType = user ? accountType : '';
+            if (user) document.body.dataset.authHint = '1';
+            else delete document.body.dataset.authHint;
+        }
         if (user && document.body.dataset.activePage === 'dashboard') {
             const heading = document.querySelector('.page-heading h1');
             if (heading) heading.textContent = 'Chào ' + name + ', một ngày tốt lành!';
+            const eyebrow = document.querySelector('.page-heading .eyebrow');
+            if (eyebrow) eyebrow.textContent = isCompany ? 'KHÔNG GIAN DOANH NGHIỆP' : 'KHÔNG GIAN NGƯỜI DÙNG';
         }
+    }
+    function setupAuthTabs() {
+        const tabs = [...document.querySelectorAll('[data-auth-tab]')];
+        const form = forms[0];
+        if (!tabs.length || !form) return;
+        const mode = form.dataset.authForm;
+        const card = form.closest('.auth-card') || document;
+        const setTab = type => {
+            const isCompany = type === 'company';
+            tabs.forEach(tab => {
+                const active = tab.dataset.authTab === type;
+                tab.classList.toggle('active', active);
+                tab.setAttribute('aria-selected', String(active));
+            });
+            message(form, '');
+            const titleEl = card.querySelector('[data-auth-title]');
+            const subtitleEl = card.querySelector('[data-auth-subtitle]');
+            const submitEl = card.querySelector('[data-auth-submit-label]');
+            const bottomEl = card.querySelector('[data-auth-bottom]');
+            const altEl = card.querySelector('[data-auth-alt]');
+            if (mode === 'register') {
+                const typeInput = form.querySelector('input[name="account_type"]');
+                if (typeInput) typeInput.value = type;
+                const companyInput = form.querySelector('#company-name');
+                const companyLabel = form.querySelector('[data-company-label]');
+                const companyHelp = form.querySelector('[data-company-help]');
+                const nameLabel = form.querySelector('[data-name-label]');
+                const emailLabel = form.querySelector('label[for="email"]');
+                if (titleEl) titleEl.textContent = isCompany ? 'Đăng ký không gian công ty' : 'Đăng ký tài khoản người dùng';
+                if (subtitleEl) subtitleEl.textContent = isCompany
+                    ? 'Tạo không gian doanh nghiệp và tài khoản quản trị viên đầu tiên.'
+                    : 'Tạo tài khoản cá nhân hoặc nhân viên để gửi và nhận kiện hàng.';
+                if (submitEl) submitEl.textContent = isCompany ? 'Đăng ký cho công ty' : 'Đăng ký tài khoản người dùng';
+                if (companyLabel) companyLabel.textContent = isCompany ? 'Tên công ty / Doanh nghiệp' : 'Tên công ty (không bắt buộc)';
+                if (companyInput) {
+                    companyInput.required = isCompany;
+                    companyInput.placeholder = isCompany ? 'Công ty TNHH Smart Locker' : 'Bỏ trống nếu dùng cá nhân';
+                }
+                if (companyHelp) companyHelp.textContent = isCompany
+                    ? 'Tên công ty sẽ được dùng để tạo không gian doanh nghiệp.'
+                    : 'Nhập tên công ty nếu bạn là nhân viên thuộc doanh nghiệp.';
+                if (nameLabel) nameLabel.textContent = isCompany ? 'Họ và tên người quản trị' : 'Họ và tên';
+                if (emailLabel) emailLabel.textContent = isCompany ? 'Email doanh nghiệp' : 'Email';
+                if (bottomEl) bottomEl.innerHTML = 'Đã có tài khoản? <a href="login.php?type=' + (isCompany ? 'company' : 'user') + '">Đăng nhập ngay</a>';
+            } else if (mode === 'login') {
+                const loginInput = form.querySelector('input[name="login_type"]');
+                if (loginInput) loginInput.value = type;
+                if (titleEl) titleEl.textContent = isCompany ? 'Đăng nhập doanh nghiệp' : 'Đăng nhập người dùng';
+                if (subtitleEl) subtitleEl.textContent = isCompany
+                    ? 'Truy cập không gian doanh nghiệp để quản lý hệ thống tủ và thành viên.'
+                    : 'Vào không gian người dùng để gửi, nhận hàng bằng OTP và xem lịch sử.';
+                if (submitEl) submitEl.textContent = isCompany ? 'Đăng nhập doanh nghiệp' : 'Đăng nhập người dùng';
+                if (bottomEl) bottomEl.innerHTML = isCompany
+                    ? 'Chưa có không gian doanh nghiệp? <a href="register.php?type=company">Đăng ký cho công ty</a>'
+                    : 'Chưa có tài khoản người dùng? <a href="register.php?type=user">Đăng ký người dùng</a>';
+                if (altEl) altEl.innerHTML = isCompany
+                    ? 'Bạn là cá nhân / nhân viên? <a href="login.php?type=user">Đăng nhập người dùng</a>'
+                    : 'Bạn đại diện doanh nghiệp? <a href="register.php?type=company">Đăng ký cho công ty</a>';
+            }
+        };
+        tabs.forEach(tab => tab.addEventListener('click', () => setTab(tab.dataset.authTab)));
     }
     async function signOut() {
         const { error } = await SmartLockerSupabase.getClient().auth.signOut({ scope: 'local' });
         if (error) throw error;
+        saveSessionHint(null);
         location.replace('login.php');
     }
 
+    setupAuthTabs();
     forms.forEach(form => form.addEventListener('submit', async event => {
         event.preventDefault();
         const button = form.querySelector('button[type="submit"]');
@@ -73,14 +174,24 @@ window.SmartLockerAuth = (() => {
                 const { data, error } = await client.auth.signInWithPassword({ email, password });
                 if (error) throw error;
                 if (!data.session) throw new Error('Chưa tạo được phiên đăng nhập. Vui lòng thử lại.');
+                if (data.user || data.session.user) hydrateUser(data.user || data.session.user);
                 location.assign(nextPage());
             } else if (form.dataset.authForm === 'register') {
+                const rawType = String(fields.get('account_type') || '').trim();
+                const accountType = rawType === 'user' ? 'user' : 'company';
+                const companyName = String(fields.get('company_name') || '').trim();
+                if (accountType === 'company' && !companyName) {
+                    throw new Error('Vui lòng nhập tên công ty để đăng ký không gian doanh nghiệp.');
+                }
                 const { data, error } = await client.auth.signUp({ email, password, options: {
-                    data: { full_name: String(fields.get('name') || '').trim(), company_name: String(fields.get('company_name') || '').trim() },
+                    data: { full_name: String(fields.get('name') || '').trim(), company_name: companyName, account_type: accountType },
                     emailRedirectTo: new URL('auth-callback.php', location.href).href,
                 } });
                 if (error) throw error;
-                if (data.session) location.assign('dashboard.php');
+                if (data.session) {
+                    if (data.user || data.session.user) hydrateUser(data.user || data.session.user);
+                    location.assign('dashboard.php');
+                }
                 else { message(form, 'Vui lòng kiểm tra email và bấm liên kết xác nhận. Nếu email đã được đăng ký, hãy đăng nhập.', true); form.reset(); }
             } else if (form.dataset.authForm === 'forgot') {
                 const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: new URL('update-password.php', location.href).href });
@@ -114,12 +225,16 @@ window.SmartLockerAuth = (() => {
             const { data: sessionData, error: sessionError } = await client.auth.getSession();
             if (sessionError) throw sessionError;
             let user = null;
+            if (sessionData.session?.user && !forms.some(form => ['login', 'register'].includes(form.dataset.authForm))) {
+                hydrateUser(sessionData.session.user);
+                document.body.classList.remove('auth-pending');
+            }
             if (sessionData.session) {
                 const { data, error } = await client.auth.getUser();
                 if (error) throw error;
                 user = data.user;
             }
-            if (protectedPage && !user) { location.replace(loginUrl()); return; }
+            if (protectedPage && !user) { saveSessionHint(null); location.replace(loginUrl()); return; }
             hydrateUser(user);
             document.body.classList.remove('auth-pending');
             if (user && forms.some(form => ['login', 'register'].includes(form.dataset.authForm))) { location.replace(nextPage()); return; }
@@ -135,11 +250,15 @@ window.SmartLockerAuth = (() => {
             if (document.querySelector('[data-auth-logout]')) { await signOut(); return; }
             // Callback đồng bộ, không gọi API Auth lồng trong onAuthStateChange.
             client.auth.onAuthStateChange((event, session) => {
-                if (event === 'SIGNED_OUT' && protectedPage) location.replace(loginUrl());
+                if (event === 'SIGNED_OUT') {
+                    saveSessionHint(null);
+                    if (protectedPage) location.replace(loginUrl());
+                }
                 if (session?.user) hydrateUser(session.user);
             });
             return user;
         } catch (error) {
+            saveSessionHint(null);
             if (protectedPage) { location.replace(loginUrl()); return; }
             forms.forEach(form => message(form, errorMessage(error)));
             const status = document.querySelector('[data-auth-status], [data-auth-callback]');
@@ -147,5 +266,5 @@ window.SmartLockerAuth = (() => {
             return null;
         }
     })();
-    return Object.freeze({ ready, nextPage, signOut });
+    return Object.freeze({ ready, nextPage, signOut, resolveAccountType });
 })();
