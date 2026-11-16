@@ -1,0 +1,19 @@
+<?php
+require_once __DIR__ . '/layout.php';
+$register = $authMode === 'register';
+$forgot = $authMode === 'forgot';
+$update = $authMode === 'update-password';
+$title = $register ? 'Tạo tài khoản' : ($forgot ? 'Quên mật khẩu' : ($update ? 'Đặt mật khẩu mới' : 'Đăng nhập'));
+pageStart($title, '', $update ? 'app' : 'auth');
+?>
+<div class="auth-grid"><section class="auth-story"><div class="eyebrow">KHÔNG GIAN LÀM VIỆC KẾT NỐI</div><h1>Chăm sóc kiện hàng.<br>Kết nối mọi người.</h1><p>Đăng nhập để khám phá không gian điều khiển và giao diện gửi nhận hàng dành cho doanh nghiệp.</p><?php foreach ([['locker','9 ngăn tủ trong một giao diện','Bố trí vuông 3 × 3 trên máy tính và điện thoại.'],['shield','Một tài khoản cho trải nghiệm của bạn','Đăng nhập và quản lý phiên bằng Supabase Auth.'],['clock','Điều hướng rõ ràng, dễ sử dụng','Tổng quan, gửi nhận hàng và hỗ trợ cùng một nơi.']] as [$glyph,$label,$description]): ?><div class="auth-benefit"><span class="round-icon"><?= icon($glyph) ?></span><span><strong><?= $label ?></strong><small><?= $description ?></small></span></div><?php endforeach; ?></section>
+<section class="auth-card"><h2><?= $register ? 'Bắt đầu cùng Smart Locker' : ($forgot ? 'Lấy lại quyền truy cập' : ($update ? 'Đặt mật khẩu mới' : 'Rất vui được gặp lại bạn')) ?></h2><p><?= $register ? 'Tạo tài khoản bằng email công việc của bạn.' : ($forgot ? 'Nhập email để nhận liên kết đặt lại mật khẩu.' : ($update ? 'Chọn mật khẩu mới cho tài khoản của bạn.' : 'Đăng nhập để mở bảng điều khiển.')) ?></p><form data-auth-form="<?= e($authMode) ?>">
+<?php if ($register): ?><div class="field"><label for="name">Họ và tên</label><input id="name" name="name" autocomplete="name" maxlength="100" placeholder="Nguyễn Minh Anh" required></div><?php endif; ?>
+<?php if (!$update): ?><div class="field"><label for="email">Email công việc</label><input type="email" id="email" name="email" maxlength="254" autocomplete="username" placeholder="ban@congty.vn" required></div><?php endif; ?>
+<?php if (!$forgot): ?><div class="field"><label for="password"><?= $update ? 'Mật khẩu mới' : 'Mật khẩu' ?></label><input type="password" id="password" name="password" autocomplete="<?= $register || $update ? 'new-password' : 'current-password' ?>" <?= $register || $update ? 'minlength="8"' : '' ?> maxlength="128" placeholder="<?= $register || $update ? 'Ít nhất 8 ký tự' : 'Mật khẩu của bạn' ?>" required></div><?php endif; ?>
+<?php if ($register): ?><div class="field"><label for="company-name">Tên công ty (không bắt buộc)</label><input id="company-name" name="company_name" maxlength="150" autocomplete="organization" placeholder="Tên doanh nghiệp của bạn"><small>Thông tin hiển thị trong hồ sơ, chưa tạo dữ liệu nghiệp vụ.</small></div><?php endif; ?>
+<?php if ($update): ?><div class="field"><label for="password-confirm">Nhập lại mật khẩu mới</label><input type="password" id="password-confirm" name="password_confirm" autocomplete="new-password" minlength="8" maxlength="128" required></div><?php endif; ?>
+<?php if (!$register && !$forgot && !$update): ?><p style="text-align:right;font-size:11px;margin-top:-5px"><a href="forgot-password.php">Quên mật khẩu?</a></p><?php endif; ?>
+<div class="form-message" data-auth-message role="alert"></div><button class="button button-dark button-wide" type="submit"><?= $register ? 'Tạo tài khoản' : ($forgot ? 'Gửi liên kết đặt lại' : ($update ? 'Lưu mật khẩu mới' : 'Đăng nhập')) ?> <?= icon('arrow') ?></button></form>
+<p class="auth-bottom"><?php if ($forgot || $update): ?><a href="login.php">Quay lại đăng nhập</a><?php else: ?><?= $register ? 'Đã có tài khoản?' : 'Mới đến Smart Locker?' ?> <a href="<?= $register ? 'login.php' : 'register.php' ?>"><?= $register ? 'Đăng nhập' : 'Tạo tài khoản' ?></a><?php endif; ?></p><p class="auth-disclaimer">Đăng nhập bằng Supabase Auth. Giao diện gửi/nhận hàng đang là bản xem trước.</p></section></div>
+<?php pageEnd(); ?>
