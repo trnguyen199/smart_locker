@@ -1,0 +1,21 @@
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+node_modules/
+
+# Local SSL Certificate / Temp files
+config/cacert.pem
+*.pem
+*.log
+
+# Ghi chu noi bo & Prompt AI ca nhan (Khong push len GitHub repo chung)
+CODEX_MASTER_PROMPTS.md
+PROJECT_MEMORY.md
+HUONG_DAN_CAI_DAT_VA_VAN_DAP.md
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

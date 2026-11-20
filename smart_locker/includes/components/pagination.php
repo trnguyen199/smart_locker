@@ -6,6 +6,11 @@
         </p>
         <form method="get" class="d-flex flex-wrap align-items-center gap-2">
             <input type="hidden" name="page" value="1">
+            <?php foreach (['q', 'status', 'mode'] as $queryKey): ?>
+                <?php if (isset($pagination['query'][$queryKey]) && is_string($pagination['query'][$queryKey])): ?>
+                    <input type="hidden" name="<?= $queryKey ?>" value="<?= htmlspecialchars($pagination['query'][$queryKey], ENT_QUOTES, 'UTF-8') ?>">
+                <?php endif; ?>
+            <?php endforeach; ?>
             <label for="per-page" class="small text-muted">Số tủ mỗi trang:</label>
             <select name="per_page" id="per-page" class="form-select form-select-sm pagination-page-size">
                 <?php foreach ($pagination['page_sizes'] as $pageSize): ?>

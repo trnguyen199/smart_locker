@@ -1,0 +1,4 @@
+window.SMART_LOCKER_SUPABASE = Object.freeze({
+    url: 'https://YOUR_PROJECT.supabase.co',
+    publishableKey: 'sb_publishable_YOUR_PUBLIC_KEY',
+});

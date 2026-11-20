@@ -1,10 +1,46 @@
 <?php
+/**
+ * FILE: api/force_open.php
+ * Chức năng: Chỉ dành cho Quản trị Doanh nghiệp (account_type = company).
+ * Gửi lệnh mở khóa khẩn cấp từ xa (REMOTE_UNLOCK) xuống mạch ESP32 và ghi nhật ký Audit Log.
+ */
+declare(strict_types=1);
+
 require_once __DIR__ . '/bootstrap.php';
+requireMethod('POST');
 
-apiRequirePost();
-$user = apiUser(true);
-$lockerId = apiLockerId();
-if (!queryOne('SELECT id FROM lockers WHERE id = ? AND company_id = ?', [$lockerId, $user['company_id']])) throw new ApiError('Không tìm thấy ngăn tủ.', 404, 'NOT_FOUND');
+$admin = requireAuthUser(true);
+$body = getRequestJson();
+$lockerId = (int) ($body['locker_id'] ?? 0);
 
-// TODO: Xác thực quyền quản trị và yêu cầu, rồi gửi lệnh mở khóa tới ESP32.
-apiNotImplemented('Chưa kết nối thiết bị ESP32. Không có lệnh mở cửa vật lý nào được gửi.');
+if ($lockerId <= 0) {
+    jsonError('Thiếu mã ngăn tủ (locker_id).', 422);
+}
+
+$patchRes = supabaseRequest('PATCH', '/rest/v1/lockers?id=eq.' . $lockerId, [
+    'door_locked' => false,
+    'pending_cmd' => 'REMOTE_UNLOCK',
+    'updated_at' => gmdate('c'),
+], ['Prefer: return=representation']);
+
+if (!$patchRes['ok'] || empty($patchRes['data'])) {
+    jsonError('Không tìm thấy ngăn tủ hoặc không cập nhật được lệnh mở khóa.', 404);
+}
+
+$locker = $patchRes['data'][0];
+logAuditEvent($admin['email'], 'COMPANY_ADMIN', 'FORCE_OPEN', $lockerId, [
+    'reason' => trim((string) ($body['reason'] ?? 'Admin emergency override')),
+]);
+
+jsonResponse([
+    'ok' => true,
+    'message' => 'Đã phát lệnh mở khóa khẩn cấp cho Tủ ' . sprintf('%02d', $locker['slot']) . '.',
+    'locker' => $locker,
+    'mqtt_command' => [
+        'cmd' => 'REMOTE_UNLOCK',
+        'locker_id' => $lockerId,
+        'slot' => (int) $locker['slot'],
+        'triggered_by' => 'ADMIN',
+        'timestamp' => time(),
+    ],
+]);
