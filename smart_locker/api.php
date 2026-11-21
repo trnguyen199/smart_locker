@@ -3,7 +3,8 @@ declare(strict_types=1);
 /**
  * FILE: api.php
  * Phụ trách: Hà Ngọc Hiếu
- * Chức năng: Cổng định tuyến tập trung (API Gateway) hỗ trợ Web, Kiosk và ESP32/Wokwi.
+ * Chức năng: Cổng định tuyến tập trung (API Gateway) kết nối Web (Nguyên),
+ * Bản mô phỏng tủ nhiều ngăn (Phạm Vũ Lân) và Mạch giả lập (Duy Quách).
  */
 
 require_once __DIR__ . '/api/bootstrap.php';
@@ -18,8 +19,22 @@ switch ($action) {
             'author' => 'Ha Ngoc Hieu',
             'mqtt_wss' => slEnv('MQTT_WSS_URL', 'wss://broker.emqx.io:8084/mqtt'),
             'mqtt_topic_prefix' => slEnv('MQTT_TOPIC_PREFIX', 'uth/iot/smartlocker/nhom4'),
+            'endpoints' => [
+                'kiosk_state' => 'GET api.php?action=kiosk_state (Header: X-Device-Key)',
+                'kiosk_door_event' => 'POST api.php?action=kiosk_door_event (Header: X-Device-Key)',
+                'dashboard_stats' => 'GET api.php?action=dashboard_stats (mode=stats|health)',
+                'cron_sweep' => 'GET api.php?action=cron_sweep (Header: X-Device-Key)',
+                'mqtt_bridge' => 'POST api.php?action=mqtt_bridge (mode=heartbeat|telemetry|event)',
+                'iot_sync' => 'POST api.php?action=iot_sync (Header: X-Device-Key)',
+                'verify_otp' => 'POST api/verify_otp.php (Bearer JWT hoặc X-Device-Key)',
+            ],
             'timestamp' => gmdate('c'),
         ]);
+        break;
+
+    case 'kiosk_state':
+    case 'kiosk_door_event':
+        require __DIR__ . '/api/kiosk.php';
         break;
 
     case 'dashboard_stats':
