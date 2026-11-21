@@ -1,6 +1,0 @@
-DHT sensor library for ESPx
-LiquidCrystal I2C
-Keypad
-ESP32Servo
-PubSubClient
-ArduinoJson
