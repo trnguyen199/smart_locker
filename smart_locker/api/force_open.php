@@ -18,7 +18,10 @@ if ($lockerId <= 0) {
 }
 
 $patchRes = supabaseRequest('PATCH', '/rest/v1/lockers?id=eq.' . $lockerId, [
+    'status' => 'OPEN',
     'door_locked' => false,
+    'lockout_until' => null,
+    'wrong_attempts' => 0,
     'pending_cmd' => 'REMOTE_UNLOCK',
     'updated_at' => gmdate('c'),
 ], ['Prefer: return=representation']);

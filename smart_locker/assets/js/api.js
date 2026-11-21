@@ -1,14 +1,18 @@
 /**
  * FILE: assets/js/api.js
- * Phụ trách: Ngọc Hiếu
- * Kiến trúc:
- *  1. Gọi các PHP REST API (api/*.php) kèm Supabase JWT Bearer Token để lưu trữ an toàn vào Supabase PostgreSQL.
- *  2. Kết nối trực tiếp EMQX MQTT over WebSockets (wss://broker.emqx.io:8084/mqtt) để đồng bộ Realtime < 100ms với mạch ESP32 trên Wokwi.
- *  3. Tự động hydrat hóa (cập nhật dữ liệu thật) lên dashboard.php, lockers.php, history.php, members.php, settings.php, support.php.
+ * Phụ trách: Ngọc Hiếu (nhánh backend)
+ * Thiết kế Zero-Touch Non-Destructive:
+ *  - Không yêu cầu sửa bất kỳ file giao diện PHP/CSS/auth.js nào trên nhánh `main` của Nguyên.
+ *  - Tự nạp MQTT.js (WebSockets) khi cần, kết nối PHP Backend (api/*.php) kèm Supabase Auth JWT,
+ *    kích hoạt các nút/biểu mẫu đang ở chế độ xem trước và đồng bộ dữ liệu thật cho tất cả trang.
  */
 window.SmartLockerAPI = (() => {
-    const MQTT_BROKER_WSS = 'wss://broker.emqx.io:8084/mqtt';
-    const TOPIC_PREFIX = 'uth/iot/smartlocker/nhom4';
+    // MQTT trình duyệt tắt mặc định: thiết bị đọc pending_cmd và gửi trạng thái qua REST API.
+    const mqttConfig = window.SMART_LOCKER_MQTT || {};
+    const MQTT_ENABLED = mqttConfig.enabled === true;
+    const MQTT_CDN = mqttConfig.cdn || 'https://unpkg.com/mqtt@5.10.4/dist/mqtt.min.js';
+    const MQTT_BROKER_WSS = mqttConfig.broker || '';
+    const TOPIC_PREFIX = mqttConfig.topicPrefix || '';
     const TOPIC_CMD = `${TOPIC_PREFIX}/cmd`;
     const TOPIC_STATE = `${TOPIC_PREFIX}/state`;
 
@@ -17,7 +21,28 @@ window.SmartLockerAPI = (() => {
     let mockTimer = null;
     const stateListeners = new Set();
 
-    // [VẤN ĐÁP]: Lấy JWT access_token từ phiên Supabase Auth hiện tại để gửi kèm mỗi yêu cầu tới PHP Backend.
+    // [VẤN ĐÁP]: Mã hóa HTML chống lỗ hổng XSS trước khi đưa dữ liệu DB lên giao diện.
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function loadScriptOnce(src) {
+        return new Promise((resolve) => {
+            if (document.querySelector(`script[src="${src}"]`)) return resolve(true);
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = true;
+            s.onload = () => resolve(true);
+            s.onerror = () => resolve(false);
+            document.head.appendChild(s);
+        });
+    }
+
     async function getAccessToken() {
         if (!window.SmartLockerSupabase?.isConfigured()) return null;
         const { data } = await window.SmartLockerSupabase.getClient().auth.getSession();
@@ -46,21 +71,41 @@ window.SmartLockerAPI = (() => {
         return payload;
     }
 
-    // =========================================================================
-    // KẾT NỐI REALTIME EMQX MQTT OVER WEBSOCKETS VỚI MẠCH WOKWI ESP32
-    // =========================================================================
+    // Cập nhật thanh trạng thái .environment-note có sẵn trên mọi trang của main
     function updateBanner(text, mode = 'online') {
-        const el = document.getElementById('ui-conn-status');
-        const dot = document.getElementById('ui-conn-dot');
-        if (el) el.textContent = text;
+        const note = document.querySelector('.environment-note');
+        if (!note) return;
+        const dot = note.querySelector('.status-dot');
+        const label = note.querySelector('span:not(.status-dot)');
+        if (label) label.textContent = text;
         if (dot) {
             dot.style.background = mode === 'online' ? '#16a34a' : (mode === 'mock' ? '#d97706' : '#dc2626');
         }
     }
 
-    // [VẤN ĐÁP]: Dùng MQTT over WSS (cổng 8084) vì trình duyệt không mở được TCP cổng 1883 thuần như ESP32.
-    function connectMqtt() {
-        if (mqttClient || typeof window.mqtt === 'undefined') return;
+    function applyBackendIdentity(user) {
+        if (!user) return;
+        const isAdmin = user.role === 'ADMIN';
+        document.body.dataset.accountType = isAdmin ? 'company' : 'user';
+        document.body.dataset.backendRole = user.role || 'RECEIVER';
+        document.querySelectorAll('[data-company-only]').forEach(el => { el.hidden = !isAdmin; });
+        document.querySelectorAll('[data-personal-only]').forEach(el => { el.hidden = isAdmin; });
+        document.querySelectorAll('[data-workspace-role]').forEach(el => {
+            el.textContent = isAdmin ? 'Quản trị viên doanh nghiệp' : (user.role === 'SHIPPER' ? 'Nhân viên giao nhận' : 'Người dùng');
+        });
+    }
+
+    // =========================================================================
+    // KẾT NỐI REALTIME EMQX MQTT OVER WEBSOCKETS VỚI TỦ MÔ PHỎNG / MẠCH ESP32
+    // =========================================================================
+    async function connectMqtt() {
+        if (!MQTT_ENABLED || !MQTT_BROKER_WSS || !TOPIC_PREFIX) return false;
+        if (mqttClient) return;
+        if (typeof window.mqtt === 'undefined') {
+            await loadScriptOnce(MQTT_CDN);
+        }
+        if (typeof window.mqtt === 'undefined') return;
+
         const clientId = 'sl_web_' + Math.random().toString(16).slice(2, 10);
         mqttClient = window.mqtt.connect(MQTT_BROKER_WSS, {
             clientId,
@@ -71,7 +116,7 @@ window.SmartLockerAPI = (() => {
         mqttClient.on('connect', () => {
             mqttConnected = true;
             mqttClient.subscribe(TOPIC_STATE, { qos: 1 });
-            updateBanner('Trực tuyến · Đồng bộ Supabase + MQTT Wokwi (<100ms)', 'online');
+            updateBanner('Trực tuyến · Đồng bộ Supabase + MQTT Realtime (<100ms)', 'online');
         });
 
         mqttClient.on('offline', () => {
@@ -91,10 +136,9 @@ window.SmartLockerAPI = (() => {
         });
     }
 
-    // [VẤN ĐÁP]: Bật qos=1 và retain=true giúp mạch ESP32 trên Wokwi nhận được lệnh ngay cả khi vừa reset lại.
     function publishHardwareCommand(cmdPayload) {
-        if (!mqttClient || !mqttConnected) return false;
-        mqttClient.publish(TOPIC_CMD, JSON.stringify(cmdPayload), { qos: 1, retain: true });
+        if (!MQTT_ENABLED || !mqttClient || !mqttConnected) return false;
+        mqttClient.publish(TOPIC_CMD, JSON.stringify(cmdPayload), { qos: 1, retain: false });
         return true;
     }
 
@@ -103,7 +147,6 @@ window.SmartLockerAPI = (() => {
         return () => stateListeners.delete(callback);
     }
 
-    // Cập nhật ngay 1 ô ngăn tủ khi nhận gói tin MQTT từ Wokwi mà không cần reload trang
     function applyLiveHardwareTile(hw) {
         const id = Number(hw.locker_id || 1);
         const tile = document.querySelector(`.locker-tile[data-id="${id}"]`);
@@ -111,9 +154,10 @@ window.SmartLockerAPI = (() => {
             const tempEl = tile.querySelector('.locker-temperature');
             if (tempEl) tempEl.textContent = `${Number(hw.current_temp).toFixed(1)}°C`;
         }
-        const dlgTemp = document.querySelector(`#locker-detail-${id} [data-dialog-temp]`);
-        if (dlgTemp && typeof hw.current_temp !== 'undefined') {
-            dlgTemp.textContent = `${Number(hw.current_temp).toFixed(1)}°C / Mục tiêu ${Number(hw.target_temp ?? 8).toFixed(1)}°C`;
+        const dlg = document.getElementById(`locker-detail-${id}`);
+        if (dlg && typeof hw.current_temp !== 'undefined') {
+            const dds = dlg.querySelectorAll('.definition-list dd');
+            if (dds[1]) dds[1].textContent = `${Number(hw.current_temp).toFixed(1)}°C / Mục tiêu ${Number(hw.target_temp ?? 8).toFixed(1)}°C`;
         }
         if (Number(hw.wrong_attempts || 0) >= 3 || hw.state === 'LOCKOUT') {
             window.showToast?.(`CẢNH BÁO AN NINH: Nhập sai OTP 3 lần tại Tủ ${String(id).padStart(2, '0')}!`, true);
@@ -121,21 +165,21 @@ window.SmartLockerAPI = (() => {
     }
 
     // =========================================================================
-    // VIRTUAL LOCKER SIMULATOR (MÔ PHỎNG MẠCH ĐỂ DEMO KHI KHÔNG BẬT WOKWI)
+    // VIRTUAL LOCKER SIMULATOR (MÔ PHỎNG MẠCH ĐỂ TEST & DEMO ĐỘC LẬP)
     // =========================================================================
     function toggleVirtualSimulator(forceFault = false) {
         if (mockTimer && !forceFault) {
             clearInterval(mockTimer);
             mockTimer = null;
-            updateBanner(mqttConnected ? 'Trực tuyến · Đồng bộ Supabase + MQTT Wokwi' : 'Đã tắt giả lập', mqttConnected ? 'online' : 'offline');
+            updateBanner(mqttConnected ? 'Trực tuyến · Đồng bộ Supabase + MQTT Realtime' : 'Đã tắt giả lập', mqttConnected ? 'online' : 'offline');
             window.showToast?.('Đã tắt chế độ Giả lập Mạch (Virtual Simulator).');
             return false;
         }
         if (mockTimer) clearInterval(mockTimer);
 
         let simTemp = forceFault ? 22.4 : 6.2;
-        updateBanner(forceFault ? 'SIMULATOR: Đang mô phỏng lỗi hở cửa / rò rỉ nhiệt!' : 'SIMULATOR: Đang giả lập cảm biến DHT22 mỗi 2 giây', 'mock');
-        window.showToast?.(forceFault ? 'Đang kích hoạt kịch bản lỗi rò rỉ nhiệt Tủ 01 để kiểm thử AI!' : 'Đã bật Virtual Locker Simulator (Tủ 01 & Tủ 03).');
+        updateBanner(forceFault ? 'SIMULATOR: Đang mô phỏng lỗi hở cửa / rò rỉ nhiệt!' : 'SIMULATOR: Đang giả lập cảm biến DHT22 mỗi 3 giây', 'mock');
+        window.showToast?.(forceFault ? 'Đang kích hoạt kịch bản lỗi rò rỉ nhiệt Tủ 01 để kiểm thử AI!' : 'Đã bật Virtual Locker Simulator (Tủ 01).');
 
         const tick = async () => {
             simTemp = forceFault ? Math.min(28.0, simTemp + 0.6) : (5.0 + Math.random() * 1.4);
@@ -158,9 +202,7 @@ window.SmartLockerAPI = (() => {
                 if (res.ai_analysis?.has_anomaly) {
                     window.showToast?.(`[AI CẢNH BÁO TỦ 01] ${res.ai_analysis.reason}`, true);
                 }
-            } catch (_) {
-                // Nếu chưa điền Service Key thì Simulator vẫn cập nhật mượt trên UI
-            }
+            } catch (_) {}
         };
         tick();
         mockTimer = setInterval(tick, 3000);
@@ -168,50 +210,7 @@ window.SmartLockerAPI = (() => {
     }
 
     // =========================================================================
-    // CÁC HÀM NGHIỆP VỤ GỌI API PHP
-    // =========================================================================
-    const api = {
-        getLockers: () => request('api/lockers.php'),
-        getTelemetry: (lockerId = 1, limit = 30) => request(`api/telemetry.php?locker_id=${encodeURIComponent(lockerId)}&limit=${encodeURIComponent(limit)}`),
-        syncAuth: () => request('api/auth.php', { method: 'POST' }),
-        createBooking: async (data) => {
-            const res = await request('api/create_booking.php', { method: 'POST', body: data });
-            if (res.mqtt_command) publishHardwareCommand(res.mqtt_command);
-            return res;
-        },
-        verifyOtp: async (otp, lockerId = 0) => {
-            const res = await request('api/verify_otp.php', { method: 'POST', body: { otp, locker_id: lockerId } });
-            if (res.mqtt_command) publishHardwareCommand(res.mqtt_command);
-            return res;
-        },
-        forceOpen: async (lockerId, reason = 'Admin emergency unlock') => {
-            const res = await request('api/force_open.php', { method: 'POST', body: { locker_id: lockerId, reason } });
-            if (res.mqtt_command) publishHardwareCommand(res.mqtt_command);
-            return res;
-        },
-        resetLocker: async (lockerId) => {
-            const res = await request('api/reset_locker.php', { method: 'POST', body: { locker_id: lockerId } });
-            if (res.mqtt_command) publishHardwareCommand(res.mqtt_command);
-            return res;
-        },
-        setLockerTemp: async (lockerId, targetTemp) => {
-            const res = await request('api/lockers.php', { method: 'PATCH', body: { locker_id: lockerId, target_temp: Number(targetTemp) } });
-            publishHardwareCommand({ cmd: 'SET_TEMP', locker_id: lockerId, target_temp: Number(targetTemp), timestamp: Math.floor(Date.now() / 1000) });
-            return res;
-        },
-        getAccount: () => request('api/account.php'),
-        updateProfile: (fullName) => request('api/account.php', { method: 'POST', body: { action: 'update_profile', full_name: fullName } }),
-        inviteMember: (email, role) => request('api/account.php', { method: 'POST', body: { action: 'invite_member', email, role } }),
-        removeMember: (id) => request(`api/account.php?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
-        createSupportTicket: (data) => request('api/support.php', { method: 'POST', body: data }),
-        connectMqtt,
-        publishHardwareCommand,
-        onHardwareUpdate,
-        toggleVirtualSimulator,
-    };
-
-    // =========================================================================
-    // TỰ ĐỘNG GẮN NGHIỆP VỤ VÀO CÁC TRANG GIAO DIỆN HIỆN CÓ
+    // ĐỊNH DẠNG & HIỂN THỊ DÙNG CHUNG
     // =========================================================================
     function formatDateVN(iso) {
         if (!iso) return '—';
@@ -219,30 +218,53 @@ window.SmartLockerAPI = (() => {
             return new Intl.DateTimeFormat('vi-VN', {
                 day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
             }).format(new Date(iso));
-        } catch (_) { return iso; }
+        } catch (_) { return String(iso); }
     }
 
     function statusText(st) {
-        return { ACTIVE: 'Chờ nhận', COLLECTED: 'Đã nhận', CANCELLED: 'Đã hủy', AVAILABLE: 'Trống', OCCUPIED: 'Đang dùng', ERROR: 'Bảo trì' }[st] || st;
+        return {
+            ACTIVE: 'Chờ nhận',
+            COLLECTED: 'Đã nhận',
+            CANCELLED: 'Đã hủy',
+            EXPIRED: 'Quá hạn',
+            AVAILABLE: 'Trống',
+            WAITING_DROP: 'Chờ bỏ hàng',
+            OPEN: 'Đang mở cửa',
+            OCCUPIED: 'Đang dùng',
+            LOCKOUT: 'Khóa an ninh',
+            ERROR: 'Bảo trì',
+        }[st] || String(st || '');
+    }
+
+    function statusBadgeClass(st) {
+        const s = String(st || '').toLowerCase();
+        if (['available', 'collected', 'closed'].includes(s)) return 'status-available';
+        if (['error', 'cancelled', 'expired', 'lockout'].includes(s)) return 'status-error';
+        return 'status-active';
     }
 
     function categoryText(cat) {
-        return { FOOD: 'Đồ ăn mát', HOT_FOOD: 'Đồ ăn nóng', DRINK: 'Đồ uống lạnh', PARCEL: 'Bưu kiện thường' }[cat] || cat;
+        return {
+            FOOD: 'Đồ ăn mát',
+            HOT_FOOD: 'Đồ ăn nóng',
+            DRINK: 'Đồ uống lạnh',
+            PARCEL: 'Bưu kiện thường',
+        }[cat] || String(cat || '');
     }
 
     function renderBookingsTableRows(tbody, bookings) {
         if (!tbody) return;
         if (!bookings.length) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Chưa có giao dịch thực tế nào trên Supabase.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Chưa có giao dịch phù hợp trên Supabase.</td></tr>';
             return;
         }
         tbody.innerHTML = bookings.map(b => `
             <tr>
-                <td><strong class="table-title">#SL${String(b.id).padStart(5, '0')}</strong><small>${categoryText(b.category)} · ${b.target_temp ?? 25}°C</small></td>
+                <td><strong class="table-title">#SL${String(b.id).padStart(5, '0')}</strong><small>${escapeHtml(categoryText(b.category))} · ${escapeHtml(b.target_temp ?? 25)}°C</small></td>
                 <td><span class="table-locker">Tủ ${String(b.slot || b.locker_id).padStart(2, '0')}</span></td>
-                <td>${b.recipient_email || ''}</td>
-                <td>${formatDateVN(b.created_at)}</td>
-                <td><span class="status-badge status-${String(b.status || '').toLowerCase()}"><i></i>${statusText(b.status)}</span></td>
+                <td>${escapeHtml(b.recipient_email || '')}</td>
+                <td>${escapeHtml(formatDateVN(b.created_at))}</td>
+                <td><span class="status-badge ${statusBadgeClass(b.status)}"><i></i>${escapeHtml(statusText(b.status))}</span></td>
             </tr>
         `).join('');
     }
@@ -252,13 +274,13 @@ window.SmartLockerAPI = (() => {
             const tile = document.querySelector(`.locker-tile[data-id="${l.id}"]`);
             if (!tile) return;
             const avail = l.status === 'AVAILABLE' && Boolean(l.online);
-            const hasIssue = l.status === 'ERROR' || !l.online || Boolean(l.ai_analysis?.has_anomaly);
+            const hasIssue = ['ERROR', 'LOCKOUT'].includes(l.status) || !l.online || Boolean(l.ai_analysis?.has_anomaly);
             tile.dataset.type = l.type;
             tile.classList.remove('available', 'occupied', 'unavailable', 'has-issue');
             if (isAdmin) {
                 tile.classList.add(hasIssue ? 'has-issue' : (avail ? 'available' : 'occupied'));
             } else {
-                tile.classList.add(avail ? 'available' : (l.status === 'OCCUPIED' ? 'occupied' : 'unavailable'));
+                tile.classList.add(avail ? 'available' : (['OCCUPIED', 'WAITING_DROP', 'OPEN'].includes(l.status) ? 'occupied' : 'unavailable'));
                 tile.disabled = !avail;
                 if (avail) tile.setAttribute('onclick', 'selectLocker(this)');
             }
@@ -269,180 +291,473 @@ window.SmartLockerAPI = (() => {
         });
     }
 
+    function renderDashboardWeeklyChart(bookings) {
+        const chartEl = document.querySelector('.activity-chart');
+        if (!chartEl) return;
+        const days = [];
+        const dayMap = {};
+        const now = new Date();
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const label = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const item = { key, label, count: 0 };
+            days.push(item);
+            dayMap[key] = item;
+        }
+        bookings.forEach(b => {
+            if (!b.created_at) return;
+            const d = new Date(b.created_at);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            if (dayMap[key]) dayMap[key].count++;
+        });
+        const maxCount = Math.max(1, ...days.map(d => d.count));
+        chartEl.innerHTML = days.map(d => {
+            const pct = Math.max(4, Math.round((d.count / maxCount) * 100));
+            return `<div class="chart-column"><b>${d.count}</b><div class="chart-bar" style="height:${pct}%"></div><small>${escapeHtml(d.label)}</small></div>`;
+        }).join('');
+        const foot = document.querySelector('.chart-foot');
+        if (foot) {
+            foot.innerHTML = `<span class="status-dot"></span>Đã đồng bộ ${bookings.length} giao dịch thực tế từ Supabase`;
+        }
+    }
+
+    // Thay thế sạch listener [data-preview-form] của app.js mà không sửa app.js
+    function detachPreviewForm(form) {
+        if (!form) return null;
+        form.removeAttribute('data-preview-form');
+        const clone = form.cloneNode(true);
+        form.parentNode.replaceChild(clone, form);
+        const btn = clone.querySelector('button');
+        if (btn) {
+            btn.disabled = false;
+            btn.type = 'submit';
+            btn.removeAttribute('title');
+        }
+        const note = clone.querySelector('.preview-note');
+        if (note) note.textContent = 'Đã kết nối trực tiếp với Backend Supabase & MQTT Realtime.';
+        return clone;
+    }
+
+    // =========================================================================
+    // API PUBLIC METHODS
+    // =========================================================================
+    const api = {
+        escapeHtml,
+        loadScriptOnce,
+        statusText,
+        statusBadgeClass,
+        categoryText,
+        formatDateVN,
+        renderBookingsTableRows,
+        updateLockerTiles,
+        getLockers: () => request('api/lockers.php'),
+        getTelemetry: (lockerId = 1, limit = 30) => request(`api/telemetry.php?locker_id=${encodeURIComponent(lockerId)}&limit=${encodeURIComponent(limit)}`),
+        syncAuth: () => request('api/auth.php', { method: 'POST' }),
+        createBooking: async (data) => {
+            return request('api/create_booking.php', { method: 'POST', body: data });
+        },
+        verifyOtp: async (otp, lockerId = 0) => {
+            return request('api/verify_otp.php', { method: 'POST', body: { otp, locker_id: Number(lockerId) || 0 } });
+        },
+        forceOpen: async (lockerId, reason = 'Admin emergency unlock') => {
+            return request('api/force_open.php', { method: 'POST', body: { locker_id: lockerId, reason } });
+        },
+        resetLocker: async (lockerId) => {
+            return request('api/reset_locker.php', { method: 'POST', body: { locker_id: lockerId } });
+        },
+        setLockerTemp: async (lockerId, targetTemp) => {
+            return request('api/lockers.php', { method: 'PATCH', body: { locker_id: lockerId, target_temp: Number(targetTemp) } });
+        },
+        getAccount: () => request('api/account.php'),
+        updateProfile: async (fullName) => {
+            if (window.SmartLockerSupabase?.isConfigured()) {
+                await window.SmartLockerSupabase.getClient().auth.updateUser({ data: { full_name: fullName } });
+            }
+            const res = await request('api/account.php', { method: 'POST', body: { action: 'update_profile', full_name: fullName } });
+            document.querySelectorAll('[data-user-name]').forEach(el => {
+                if (el.matches('input')) el.value = fullName; else el.textContent = fullName;
+            });
+            return res;
+        },
+        inviteMember: (email, role) => request('api/account.php', { method: 'POST', body: { action: 'invite_member', email, role } }),
+        updateMemberRole: (id, role) => request('api/account.php', { method: 'PATCH', body: { id: Number(id), role } }),
+        removeMember: (id) => request(`api/account.php?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+        createSupportTicket: (data) => request('api/support.php', { method: 'POST', body: data }),
+        connectMqtt,
+        publishHardwareCommand,
+        onHardwareUpdate,
+        toggleVirtualSimulator,
+    };
+
+    // =========================================================================
+    // ZERO-TOUCH HYDRATION CHO TỪNG TRANG TRÊN NHÁNH `main` KHÔNG SỬA HTML
+    // =========================================================================
+    function wireLockersSendPage() {
+        const card = document.getElementById('booking-form-card');
+        if (!card) return;
+        const oldForm = card.querySelector('form');
+        const form = detachPreviewForm(oldForm);
+        if (!form) return;
+
+        // Nâng cấp danh mục 2x2 thêm HOT_FOOD (55°C) + dải nhiệt 2–65°C + chọn thời hạn OTP
+        const catGrid = form.querySelector('.category-grid');
+        if (catGrid && !catGrid.querySelector('input[value="HOT_FOOD"]')) {
+            catGrid.style.gridTemplateColumns = 'repeat(2, 1fr)';
+            const hotLabel = document.createElement('label');
+            hotLabel.innerHTML = '<input type="radio" name="category" value="HOT_FOOD"><span>Đồ ăn nóng (55°C)</span>';
+            catGrid.appendChild(hotLabel);
+        }
+
+        const slider = form.querySelector('#target_temp');
+        if (slider) slider.max = '65';
+
+        // Gắn bộ gợi ý nhiệt độ nâng cấp (giữ tương thích locker.js)
+        window.suggestTemp = (category) => {
+            const type = document.getElementById('selected_locker_type')?.value;
+            const sl = document.getElementById('target_temp');
+            if (!sl) return;
+            document.getElementById('temp-control-box').hidden = false;
+            let suggested = 25;
+            let hint = 'Bưu kiện thường: Tắt điều nhiệt (Smart OTP đầu 3).';
+            if (category === 'DRINK') {
+                suggested = type === 'NORMAL' ? 25 : 5;
+                hint = type === 'NORMAL' ? 'Ngăn thường không làm lạnh sâu.' : 'Đồ uống lạnh: Tự động cài 5°C (Smart OTP đầu 1).';
+            } else if (category === 'FOOD') {
+                suggested = type === 'NORMAL' ? 25 : 8;
+                hint = type === 'NORMAL' ? 'Ngăn thường bảo quản 25°C.' : 'Đồ ăn mát: Tự động cài 8°C (Smart OTP đầu 1).';
+            } else if (category === 'HOT_FOOD') {
+                suggested = 55;
+                hint = 'Đồ ăn nóng: Tự động giữ ấm 55°C (Smart OTP đầu 2).';
+            }
+            sl.value = String(suggested);
+            sl.disabled = category === 'PARCEL' || (type === 'NORMAL' && category !== 'HOT_FOOD');
+            document.getElementById('temp_display').textContent = sl.value;
+            document.getElementById('temp_hint').textContent = hint;
+        };
+        form.querySelectorAll('input[name="category"]').forEach(radio => {
+            radio.removeAttribute('onchange');
+            radio.addEventListener('change', () => window.suggestTemp(radio.value));
+        });
+        if (typeof window.selectLocker === 'function') {
+            const origSelect = window.selectLocker;
+            window.selectLocker = (el) => {
+                origSelect(el);
+                const cardEl = document.getElementById('otp-result-card');
+                if (cardEl) cardEl.hidden = true;
+            };
+        }
+
+        // Thêm bộ chọn thời hạn OTP (có mức 2 phút để demo ca quá hạn BA)
+        const tempBox = form.querySelector('#temp-control-box');
+        if (tempBox && !form.querySelector('#otp-expiry')) {
+            const expField = document.createElement('div');
+            expField.className = 'field';
+            expField.innerHTML = '<label for="otp-expiry">Thời hạn mã OTP</label><select id="otp-expiry" name="expires_in_minutes"><option value="1440" selected>24 giờ (Tiêu chuẩn)</option><option value="720">12 giờ</option><option value="240">4 giờ (Đồ nóng/lạnh)</option><option value="2">2 phút (Demo quá hạn OTP)</option></select>';
+            tempBox.parentNode.insertBefore(expField, tempBox);
+        }
+
+        // Hộp hiển thị mã Smart OTP sau khi tạo đơn
+        let otpBox = document.getElementById('otp-result-card');
+        if (!otpBox) {
+            otpBox = document.createElement('div');
+            otpBox.id = 'otp-result-card';
+            otpBox.hidden = true;
+            otpBox.style.cssText = 'margin-top:16px;padding:14px;border-radius:12px;background:#f0faf4;border:1px solid #a3cfbb';
+            otpBox.innerHTML = '<strong style="display:block;margin-bottom:6px;color:#163d35">Đã cấp mã Smart OTP thành công!</strong><small id="res-slot-info" style="display:block;margin-bottom:8px;color:#334155"></small><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span>OTP Shipper: <strong id="res-shipper-otp">------</strong></span><span>OTP Nhận: <strong id="res-receiver-otp">------</strong></span></div>';
+            card.appendChild(otpBox);
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = form.querySelector('button[type="submit"]');
+            const lockerId = Number(document.getElementById('selected_locker_id')?.value || 0);
+            const category = form.querySelector('input[name="category"]:checked')?.value || 'PARCEL';
+            const recipientEmail = document.getElementById('recipient-email')?.value.trim() || '';
+            const targetTemp = Number(document.getElementById('target_temp')?.value || 25);
+            const expiresInMinutes = Number(document.getElementById('otp-expiry')?.value || 1440);
+
+            if (!lockerId) return window.showToast?.('Vui lòng chọn một ngăn tủ trống.', true);
+            if (!recipientEmail) return window.showToast?.('Vui lòng nhập email người nhận.', true);
+
+            if (btn) btn.disabled = true;
+            try {
+                const res = await api.createBooking({
+                    locker_id: lockerId,
+                    category,
+                    recipient_email: recipientEmail,
+                    target_temp: targetTemp,
+                    expires_in_minutes: expiresInMinutes,
+                });
+                window.showToast?.(res.message);
+                otpBox.hidden = false;
+                document.getElementById('res-shipper-otp').textContent = res.booking.shipper_otp;
+                document.getElementById('res-receiver-otp').textContent = res.booking.receiver_otp;
+                document.getElementById('res-slot-info').textContent = `Tủ ${String(res.booking.slot).padStart(2, '0')} · Mục tiêu ${res.booking.target_temp}°C · Hết hạn: ${formatDateVN(res.booking.expires_at)}`;
+                const refreshed = await api.getLockers();
+                updateLockerTiles(refreshed.lockers, false);
+            } catch (err) {
+                window.showToast?.(err.message, true);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    }
+
+    function wireLockersReceivePage() {
+        const panel = document.querySelector('.receive-panel');
+        if (!panel) return;
+        const form = detachPreviewForm(panel.querySelector('form'));
+        if (!form) return;
+
+        // Thêm bộ chọn ngăn tủ (tùy chọn) để test Anti-Brute-Force theo từng ngăn
+        const otpField = form.querySelector('.field');
+        if (otpField && !form.querySelector('#receive-locker-id')) {
+            const selField = document.createElement('div');
+            selField.className = 'field';
+            selField.style.cssText = 'max-width:300px;margin:0 auto 14px;text-align:left';
+            let opts = '<option value="0">Tự động tìm ngăn tủ theo mã OTP</option>';
+            for (let i = 1; i <= 9; i++) opts += `<option value="${i}">Tủ ${String(i).padStart(2, '0')}</option>`;
+            selField.innerHTML = `<label for="receive-locker-id">Chọn ngăn tủ (không bắt buộc)</label><select id="receive-locker-id">${opts}</select>`;
+            form.insertBefore(selField, otpField);
+        }
+
+        const resultBox = document.createElement('div');
+        resultBox.hidden = true;
+        resultBox.style.cssText = 'margin-top:16px;padding:12px;border-radius:10px;background:#f0faf4;border:1px solid #a3cfbb;color:#163d35;font-weight:600';
+        form.insertAdjacentElement('afterend', resultBox);
+
+        const prevNote = panel.querySelector('.preview-note');
+        if (prevNote) prevNote.textContent = 'Nhập mã OTP 6 chữ số để mở chốt cửa ngăn tủ theo thời gian thực.';
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = form.querySelector('button[type="submit"]');
+            const otp = document.getElementById('otp_input')?.value.trim() || '';
+            const lockerId = Number(document.getElementById('receive-locker-id')?.value || 0);
+            if (btn) btn.disabled = true;
+            try {
+                const res = await api.verifyOtp(otp, lockerId);
+                window.showToast?.(res.message);
+                resultBox.hidden = false;
+                resultBox.textContent = res.message;
+                form.reset();
+            } catch (err) {
+                window.showToast?.(err.message, true);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    }
+
+    function wireMembersPage() {
+        const inviteBox = document.querySelector('.invite-box');
+        if (!inviteBox) return;
+        const emailInput = document.getElementById('invite-email');
+        const inviteBtn = inviteBox.querySelector('button');
+        const listPanel = document.querySelector('[data-company-only] .panel');
+
+        if (emailInput && !document.getElementById('invite-role')) {
+            const roleField = document.createElement('div');
+            roleField.className = 'field';
+            roleField.innerHTML = '<label for="invite-role">Vai trò phân quyền</label><select id="invite-role"><option value="STAFF">Nhân viên (Nhận / Gửi hàng)</option><option value="SHIPPER">Shipper nội bộ</option><option value="ADMIN">Quản trị viên tủ</option></select>';
+            emailInput.closest('.field').insertAdjacentElement('afterend', roleField);
+        }
+
+        const loadMembers = async () => {
+            try {
+                const res = await api.getAccount();
+                if (!listPanel) return;
+                const oldBody = listPanel.querySelector('.empty-state, .table-wrap');
+                const wrap = document.createElement('div');
+                if (!res.members.length) {
+                    wrap.className = 'empty-state';
+                    wrap.innerHTML = '<h3>Chưa có thành viên nào được mời</h3><p>Nhập email đồng nghiệp ở trên để gán vai trò vận hành.</p>';
+                } else {
+                    wrap.className = 'table-wrap';
+                    wrap.innerHTML = `<table><thead><tr><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>` +
+                        res.members.map(m => `<tr><td><strong>${escapeHtml(m.member_email)}</strong></td><td>${escapeHtml(m.role)}</td><td><span class="status-badge status-available"><i></i>${escapeHtml(m.status)}</span></td><td><button class="button button-light button-sm" data-remove-member="${Number(m.id)}">Gỡ</button></td></tr>`).join('') +
+                        '</tbody></table>';
+                    wrap.querySelectorAll('[data-remove-member]').forEach(btn => {
+                        btn.addEventListener('click', async () => {
+                            await api.removeMember(btn.dataset.removeMember);
+                            window.showToast?.('Đã gỡ thành viên khỏi công ty.');
+                            loadMembers();
+                        });
+                    });
+                }
+                if (oldBody) oldBody.replaceWith(wrap); else listPanel.appendChild(wrap);
+            } catch (_) {}
+        };
+
+        if (inviteBtn) {
+            inviteBtn.disabled = false;
+            inviteBtn.addEventListener('click', async () => {
+                const email = emailInput?.value.trim() || '';
+                const role = document.getElementById('invite-role')?.value || 'STAFF';
+                if (!email) return window.showToast?.('Vui lòng nhập email đồng nghiệp.', true);
+                inviteBtn.disabled = true;
+                try {
+                    const res = await api.inviteMember(email, role);
+                    window.showToast?.(res.message);
+                    if (emailInput) emailInput.value = '';
+                    loadMembers();
+                } catch (err) {
+                    window.showToast?.(err.message, true);
+                } finally {
+                    inviteBtn.disabled = false;
+                }
+            });
+        }
+        loadMembers();
+    }
+
+    function wireSettingsPage() {
+        const nameInput = document.getElementById('profile-name');
+        if (!nameInput) return;
+        nameInput.readOnly = false;
+        const panelBody = nameInput.closest('.panel-body');
+        const helper = panelBody?.querySelector('.helper-copy');
+        if (helper && !panelBody.querySelector('#btn-save-profile')) {
+            const btn = document.createElement('button');
+            btn.id = 'btn-save-profile';
+            btn.type = 'button';
+            btn.className = 'button button-dark button-sm';
+            btn.textContent = 'Lưu thay đổi hồ sơ';
+            btn.addEventListener('click', async () => {
+                const val = nameInput.value.trim();
+                if (!val) return window.showToast?.('Họ và tên không được để trống.', true);
+                btn.disabled = true;
+                try {
+                    const res = await api.updateProfile(val);
+                    window.showToast?.(res.message);
+                } catch (err) {
+                    window.showToast?.(err.message, true);
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+            helper.replaceWith(btn);
+        }
+    }
+
+    function wireSupportPage() {
+        const aside = document.getElementById('new-ticket');
+        if (!aside) return;
+        const form = detachPreviewForm(aside.querySelector('form'));
+        if (!form) return;
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = form.querySelector('button[type="submit"]');
+            if (btn) btn.disabled = true;
+            try {
+                const res = await api.createSupportTicket({
+                    subject: document.getElementById('ticket-subject')?.value.trim() || '',
+                    category: document.getElementById('ticket-category')?.value || 'Khác',
+                    message: document.getElementById('ticket-message')?.value.trim() || '',
+                });
+                window.showToast?.(res.message);
+                form.reset();
+            } catch (err) {
+                window.showToast?.(err.message, true);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    }
+
     async function hydratePage() {
-        connectMqtt();
         const page = document.body.dataset.activePage || '';
         const requiresAuth = document.body.dataset.requiresAuth === 'true';
+        let backendUser = null;
 
         if (window.SmartLockerAuth?.ready) {
             const user = await window.SmartLockerAuth.ready;
             if (!user && requiresAuth) return;
             if (user) {
-                api.syncAuth().catch(() => {});
+                try {
+                    const authState = await api.syncAuth();
+                    backendUser = authState.user || null;
+                    applyBackendIdentity(backendUser);
+                } catch (_) {}
+                if (MQTT_ENABLED) connectMqtt();
             }
         }
 
-        // 1. Nạp dữ liệu tủ & giao dịch cho Dashboard / Lockers / History
         if (['dashboard', 'lockers', 'history'].includes(page)) {
             try {
                 const res = await api.getLockers();
+                updateBanner('Trực tuyến · Đồng bộ an toàn qua Backend REST/Supabase', 'online');
                 if (page === 'lockers') {
                     updateLockerTiles(res.lockers, false);
                 }
                 if (page === 'dashboard') {
-                    document.querySelector('[data-stat="total"]')?.replaceChildren(String(res.stats.total).padStart(2, '0'));
-                    document.querySelector('[data-stat="available"]')?.replaceChildren(String(res.stats.available).padStart(2, '0'));
-                    document.querySelector('[data-stat="active"]')?.replaceChildren(String(res.stats.active_bookings).padStart(2, '0'));
-                    document.querySelector('[data-stat="bookings"]')?.replaceChildren(String(res.bookings.length).padStart(2, '0'));
-                    renderBookingsTableRows(document.querySelector('tbody[data-live-bookings]'), res.bookings.slice(0, 5));
+                    const vals = document.querySelectorAll('.stats-grid .stat-value');
+                    if (vals[0]) vals[0].textContent = String(res.stats.total).padStart(2, '0');
+                    if (vals[1]) vals[1].textContent = String(res.stats.available).padStart(2, '0');
+                    if (vals[2]) vals[2].textContent = String(res.stats.active_bookings).padStart(2, '0');
+                    if (vals[3]) vals[3].textContent = String(res.bookings.length).padStart(2, '0');
+                    renderDashboardWeeklyChart(res.bookings);
+                    renderBookingsTableRows(document.querySelector('table tbody'), res.bookings.slice(0, 5));
                 }
                 if (page === 'history') {
-                    renderBookingsTableRows(document.querySelector('tbody[data-live-bookings]'), res.bookings);
+                    const statusSelect = document.querySelector('form.filter-bar select[name="status"]');
+                    if (statusSelect && !statusSelect.querySelector('option[value="EXPIRED"]')) {
+                        const opt = document.createElement('option');
+                        opt.value = 'EXPIRED';
+                        opt.textContent = 'Quá hạn';
+                        statusSelect.appendChild(opt);
+                    }
+                    const params = new URLSearchParams(location.search);
+                    const qRaw = (params.get('q') || '').trim().replace(/^#/, '').toLowerCase();
+                    const statusFilter = (params.get('status') || '').trim().toUpperCase();
+                    if (statusSelect && statusFilter) statusSelect.value = statusFilter;
+
+                    const allB = res.bookings || [];
+                    const filtered = allB.filter(b => {
+                        const matchStatus = !statusFilter || String(b.status).toUpperCase() === statusFilter;
+                        const hay = `sl${String(b.id).padStart(5, '0')} ${b.recipient_email || ''} ${b.sender_email || ''} ${b.sender_name || ''} tủ ${String(b.slot || b.locker_id).padStart(2, '0')}`.toLowerCase();
+                        return matchStatus && (!qRaw || hay.includes(qRaw));
+                    });
+
+                    const vals = document.querySelectorAll('.stats-grid .stat-value');
+                    if (vals[0]) vals[0].textContent = String(allB.length);
+                    if (vals[1]) vals[1].textContent = String(allB.filter(b => b.status === 'ACTIVE').length);
+                    if (vals[2]) vals[2].textContent = String(allB.filter(b => b.status === 'COLLECTED').length);
+                    if (vals[3]) vals[3].textContent = String(allB.filter(b => ['CANCELLED', 'EXPIRED'].includes(b.status)).length);
+
+                    const sub = document.querySelector('.panel-subtitle');
+                    if (sub) sub.textContent = `${filtered.length} kết quả`;
+
+                    let tbody = document.querySelector('table tbody');
+                    if (!tbody) {
+                        const empty = document.querySelector('.panel .empty-state');
+                        if (empty) {
+                            const wrap = document.createElement('div');
+                            wrap.className = 'table-wrap';
+                            wrap.innerHTML = '<table><thead><tr><th>Giao dịch</th><th>Ngăn tủ</th><th>Người nhận</th><th>Thời gian</th><th>Trạng thái</th></tr></thead><tbody></tbody></table>';
+                            empty.replaceWith(wrap);
+                            tbody = wrap.querySelector('tbody');
+                        }
+                    }
+                    renderBookingsTableRows(tbody, filtered);
                 }
             } catch (err) {
                 if (err.code === 'MISSING_SERVICE_KEY') {
-                    updateBanner('Chế độ giao diện mẫu · Hãy tạo file .env điền SUPABASE_SECRET_KEY (sb_secret_...) để chạy DB thật', 'mock');
+                    updateBanner('Thiếu SUPABASE_SECRET_KEY trong file .env — tạo .env từ .env.example để chạy DB thật', 'mock');
                 }
             }
         }
 
-        // 2. Xử lý form Gửi hàng (lockers.php)
-        const bookingForm = document.getElementById('booking-form');
-        if (bookingForm) {
-            bookingForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const btn = document.getElementById('btn-create-booking');
-                const lockerId = Number(document.getElementById('selected_locker_id')?.value || 0);
-                const category = bookingForm.querySelector('input[name="category"]:checked')?.value || 'PARCEL';
-                const recipientEmail = document.getElementById('recipient-email')?.value.trim() || '';
-                const targetTemp = Number(document.getElementById('target_temp')?.value || 25);
-
-                if (!lockerId) return window.showToast('Vui lòng chọn một ngăn tủ trống.', true);
-                if (!recipientEmail) return window.showToast('Vui lòng nhập email người nhận.', true);
-
-                btn.disabled = true;
-                try {
-                    const res = await api.createBooking({
-                        locker_id: lockerId,
-                        category,
-                        recipient_email: recipientEmail,
-                        target_temp: targetTemp,
-                    });
-                    window.showToast(res.message);
-                    const box = document.getElementById('otp-result-card');
-                    if (box) {
-                        box.hidden = false;
-                        document.getElementById('res-shipper-otp').textContent = res.booking.shipper_otp;
-                        document.getElementById('res-receiver-otp').textContent = res.booking.receiver_otp;
-                        document.getElementById('res-slot-info').textContent = `Tủ ${String(res.booking.slot).padStart(2, '0')} · Mục tiêu ${res.booking.target_temp}°C`;
-                    }
-                    const refreshed = await api.getLockers();
-                    updateLockerTiles(refreshed.lockers, false);
-                } catch (err) {
-                    window.showToast(err.message, true);
-                } finally {
-                    btn.disabled = false;
-                }
-            });
-        }
-
-        // 3. Xử lý form Nhận hàng bằng OTP (lockers.php?mode=receive)
-        const otpForm = document.getElementById('receive-otp-form');
-        if (otpForm) {
-            otpForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const btn = document.getElementById('btn-verify-otp');
-                const otp = document.getElementById('otp_input')?.value.trim() || '';
-                btn.disabled = true;
-                try {
-                    const res = await api.verifyOtp(otp);
-                    window.showToast(res.message);
-                    const resultBox = document.getElementById('receive-result-box');
-                    if (resultBox) {
-                        resultBox.hidden = false;
-                        resultBox.textContent = res.message;
-                    }
-                    otpForm.reset();
-                } catch (err) {
-                    window.showToast(err.message, true);
-                } finally {
-                    btn.disabled = false;
-                }
-            });
-        }
-
-        // 4. Xử lý trang Thành viên (members.php)
-        const inviteForm = document.getElementById('invite-member-form');
-        if (inviteForm) {
-            const loadMembers = async () => {
-                try {
-                    const res = await api.getAccount();
-                    const container = document.getElementById('members-list-container');
-                    if (!container) return;
-                    if (!res.members.length) {
-                        container.innerHTML = '<div class="empty-state"><h3>Chưa có thành viên nào được mời</h3><p>Nhập email đồng nghiệp ở trên để thêm vào không gian công ty.</p></div>';
-                        return;
-                    }
-                    container.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>` +
-                        res.members.map(m => `<tr><td><strong>${m.member_email}</strong></td><td>${m.role}</td><td><span class="status-badge status-available"><i></i>${m.status}</span></td><td><button class="button button-light button-sm" data-remove-member="${m.id}">Gỡ</button></td></tr>`).join('') +
-                        '</tbody></table></div>';
-                    container.querySelectorAll('[data-remove-member]').forEach(btn => {
-                        btn.addEventListener('click', async () => {
-                            await api.removeMember(btn.dataset.removeMember);
-                            window.showToast('Đã gỡ thành viên.');
-                            loadMembers();
-                        });
-                    });
-                } catch (_) {}
-            };
-            loadMembers();
-            inviteForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const email = document.getElementById('invite-email')?.value.trim() || '';
-                const role = document.getElementById('invite-role')?.value || 'STAFF';
-                try {
-                    const res = await api.inviteMember(email, role);
-                    window.showToast(res.message);
-                    inviteForm.reset();
-                    loadMembers();
-                } catch (err) {
-                    window.showToast(err.message, true);
-                }
-            });
-        }
-
-        // 5. Xử lý form Hỗ trợ (support.php)
-        const supportForm = document.getElementById('support-ticket-form');
-        if (supportForm) {
-            supportForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                try {
-                    const res = await api.createSupportTicket({
-                        subject: document.getElementById('ticket-subject')?.value.trim() || '',
-                        category: document.getElementById('ticket-category')?.value || 'Khác',
-                        message: document.getElementById('ticket-message')?.value.trim() || '',
-                    });
-                    window.showToast(res.message);
-                    supportForm.reset();
-                } catch (err) {
-                    window.showToast(err.message, true);
-                }
-            });
-        }
-
-        // 6. Xử lý cập nhật hồ sơ (settings.php)
-        const profileForm = document.getElementById('profile-update-form');
-        if (profileForm) {
-            profileForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const fullName = document.getElementById('profile-name')?.value.trim() || '';
-                try {
-                    const res = await api.updateProfile(fullName);
-                    window.showToast(res.message);
-                } catch (err) {
-                    window.showToast(err.message, true);
-                }
-            });
+        if (page === 'lockers') {
+            wireLockersSendPage();
+            wireLockersReceivePage();
+        } else if (page === 'members' && backendUser?.role === 'ADMIN') {
+            wireMembersPage();
+        } else if (page === 'settings') {
+            wireSettingsPage();
+        } else if (page === 'support' && backendUser) {
+            wireSupportPage();
         }
     }
 

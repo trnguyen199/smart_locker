@@ -1,7 +1,7 @@
 <?php
 /**
  * FILE: api/auth.php
- * Chức năng: Xác thực phiên Supabase Auth JWT và đồng bộ thông tin người dùng vào bảng `profiles`.
+ * Chức năng: Xác thực phiên Supabase Auth JWT, đồng bộ vào bảng `profiles` và trả về vai trò RBAC (ADMIN/SHIPPER/RECEIVER).
  */
 declare(strict_types=1);
 
@@ -10,7 +10,6 @@ requireMethod('GET', 'POST');
 
 $user = requireAuthUser(false);
 
-// Upsert hồ sơ vào bảng profiles trên Supabase (giúp truy vấn thành viên & phân quyền đồng bộ)
 supabaseRequest('POST', '/rest/v1/profiles?on_conflict=id', [
     'id' => $user['id'],
     'email' => $user['email'],
@@ -30,6 +29,7 @@ jsonResponse([
         'full_name' => $user['full_name'],
         'company_name' => $user['company_name'],
         'account_type' => $user['account_type'],
+        'role' => $user['role'],
         'is_company' => $user['is_company'],
     ],
 ]);

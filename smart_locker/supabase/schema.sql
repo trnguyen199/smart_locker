@@ -1,9 +1,10 @@
 -- ==============================================================================
--- SMART LOCKER BUSINESS - SUPABASE POSTGRESQL SCHEMA (PHẦN NGỌC HIẾU)
--- Chạy toàn bộ file này trong: Supabase Dashboard -> SQL Editor -> New Query -> Run
+-- SMART LOCKER BUSINESS — SUPABASE POSTGRESQL SCHEMA (PHẦN NGỌC HIẾU)
+-- 100% Idempotent: An toàn chạy lại nhiều lần trong Supabase SQL Editor
+-- (tuyệt đối không gặp lỗi trùng bảng hoặc lỗi trùng policy 42710).
 -- ==============================================================================
 
--- 1. Bảng hồ sơ người dùng (đồng bộ với Supabase Auth)
+-- 1. Hồ sơ người dùng (đồng bộ với Supabase Auth)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -14,13 +15,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 2. Bảng 9 ngăn tủ thông minh (lưu trạng thái vật lý + lệnh chờ cho ESP32)
+-- 2. Danh sách 9 ngăn tủ (vòng đời đầy đủ: AVAILABLE -> WAITING_DROP -> OPEN -> OCCUPIED -> LOCKOUT/ERROR)
 CREATE TABLE IF NOT EXISTS public.lockers (
     id INT PRIMARY KEY,
     slot INT UNIQUE NOT NULL,
     code TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('COOL', 'NORMAL', 'THERMAL')),
-    status TEXT NOT NULL DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'ERROR')),
+    status TEXT NOT NULL DEFAULT 'AVAILABLE',
     current_temp NUMERIC(5,1) NOT NULL DEFAULT 25.0,
     target_temp NUMERIC(5,1) NOT NULL DEFAULT 25.0,
     humidity NUMERIC(5,1) NOT NULL DEFAULT 55.0,
@@ -32,12 +33,17 @@ CREATE TABLE IF NOT EXISTS public.lockers (
     active_shipper_otp TEXT NULL,
     active_receiver_otp TEXT NULL,
     wrong_attempts INT NOT NULL DEFAULT 0,
+    lockout_until TIMESTAMPTZ NULL,
     pending_cmd TEXT NULL,
     last_ping_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Khởi tạo sẵn 9 ngăn tủ (3x3) khớp với giao diện hiện có
+ALTER TABLE public.lockers ADD COLUMN IF NOT EXISTS lockout_until TIMESTAMPTZ NULL;
+ALTER TABLE public.lockers DROP CONSTRAINT IF EXISTS lockers_status_check;
+ALTER TABLE public.lockers ADD CONSTRAINT lockers_status_check
+    CHECK (status IN ('AVAILABLE', 'WAITING_DROP', 'OPEN', 'OCCUPIED', 'LOCKOUT', 'ERROR'));
+
 INSERT INTO public.lockers (id, slot, code, type, status, current_temp, target_temp, online)
 VALUES
     (1, 1, 'TỦ 01 (NGĂN NHIỆT)', 'COOL', 'AVAILABLE', 8.0, 8.0, TRUE),
@@ -51,7 +57,7 @@ VALUES
     (9, 9, 'TỦ 09 (NGĂN NHIỆT)', 'COOL', 'AVAILABLE', 8.1, 8.0, TRUE)
 ON CONFLICT (id) DO NOTHING;
 
--- 3. Bảng giao dịch gửi / nhận hàng
+-- 3. Giao dịch gửi / nhận hàng (vòng đời OTP: chưa dùng / đã dùng / quá hạn EXPIRED)
 CREATE TABLE IF NOT EXISTS public.bookings (
     id BIGSERIAL PRIMARY KEY,
     locker_id INT NOT NULL REFERENCES public.lockers(id) ON DELETE CASCADE,
@@ -64,12 +70,22 @@ CREATE TABLE IF NOT EXISTS public.bookings (
     recipient_email TEXT NOT NULL,
     shipper_otp TEXT NOT NULL,
     receiver_otp TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COLLECTED', 'CANCELLED')),
+    shipper_otp_used_at TIMESTAMPTZ NULL,
+    receiver_otp_used_at TIMESTAMPTZ NULL,
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours'),
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     collected_at TIMESTAMPTZ NULL
 );
 
--- 4. Bảng lịch sử cảm biến nhiệt ẩm (Time-series phục vụ biểu đồ & AI Thermal Anomaly)
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS shipper_otp_used_at TIMESTAMPTZ NULL;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS receiver_otp_used_at TIMESTAMPTZ NULL;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours');
+ALTER TABLE public.bookings DROP CONSTRAINT IF EXISTS bookings_status_check;
+ALTER TABLE public.bookings ADD CONSTRAINT bookings_status_check
+    CHECK (status IN ('ACTIVE', 'COLLECTED', 'CANCELLED', 'EXPIRED'));
+
+-- 4. Lịch sử cảm biến nhiệt ẩm (Time-series cho biểu đồ & phân tích AI nhiệt học)
 CREATE TABLE IF NOT EXISTS public.telemetry_logs (
     id BIGSERIAL PRIMARY KEY,
     locker_id INT NOT NULL REFERENCES public.lockers(id) ON DELETE CASCADE,
@@ -83,7 +99,7 @@ CREATE TABLE IF NOT EXISTS public.telemetry_logs (
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. Bảng cảnh báo AI & Bảo mật (rò rỉ nhiệt, sai OTP >= 3 lần, mất kết nối)
+-- 5. Cảnh báo vận hành & bảo mật (rò rỉ nhiệt, sai OTP >= 3 lần, quá hạn, mở trái phép)
 CREATE TABLE IF NOT EXISTS public.alerts (
     id BIGSERIAL PRIMARY KEY,
     locker_id INT NOT NULL REFERENCES public.lockers(id) ON DELETE CASCADE,
@@ -93,7 +109,7 @@ CREATE TABLE IF NOT EXISTS public.alerts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. Bảng thành viên doanh nghiệp & phân quyền
+-- 6. Thành viên doanh nghiệp & phân quyền (ADMIN, SHIPPER, STAFF)
 CREATE TABLE IF NOT EXISTS public.company_members (
     id BIGSERIAL PRIMARY KEY,
     company_name TEXT NOT NULL,
@@ -105,7 +121,7 @@ CREATE TABLE IF NOT EXISTS public.company_members (
     UNIQUE (company_name, member_email)
 );
 
--- 7. Bảng phiếu hỗ trợ
+-- 7. Phiếu yêu cầu hỗ trợ
 CREATE TABLE IF NOT EXISTS public.support_tickets (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID NULL,
@@ -117,7 +133,7 @@ CREATE TABLE IF NOT EXISTS public.support_tickets (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 8. Bảng nhật ký kiểm toán bảo mật (Audit Logs)
+-- 8. Nhật ký kiểm toán bảo mật (Audit Logs)
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id BIGSERIAL PRIMARY KEY,
     actor_email TEXT NOT NULL,
@@ -128,13 +144,14 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Chỉ mục tối ưu tốc độ truy vấn OTP và lịch sử nhiệt độ
+-- Chỉ mục tối ưu truy vấn OTP, hết hạn và lịch sử nhiệt độ
 CREATE INDEX IF NOT EXISTS idx_bookings_active_otp ON public.bookings (status, receiver_otp, shipper_otp);
+CREATE INDEX IF NOT EXISTS idx_bookings_expires_at ON public.bookings (status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_telemetry_locker_time ON public.telemetry_logs (locker_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action_time ON public.audit_logs (action, actor_email, created_at DESC);
 
--- Bật Row Level Security (RLS) chuẩn doanh nghiệp:
--- Trình duyệt dùng anon/publishable key KHÔNG thể ghi bậy trực tiếp vào DB;
--- Mọi thao tác ghi đều đi qua PHP Backend (dùng SERVICE_ROLE_KEY sau khi xác thực JWT).
+-- Bật Row Level Security (RLS). Mọi dữ liệu nghiệp vụ chỉ đi qua PHP Backend;
+-- trình duyệt không được SELECT trực tiếp vì bảng lockers có trạng thái nội bộ và OTP đang hoạt động.
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lockers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
@@ -144,6 +161,21 @@ ALTER TABLE public.company_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Cho phép người dùng đã đăng nhập đọc công khai trạng thái tủ (không lộ OTP vì PHP filter)
-CREATE POLICY "Authenticated read lockers" ON public.lockers
-    FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Authenticated read lockers" ON public.lockers;
+
+REVOKE ALL ON TABLE public.profiles FROM anon, authenticated;
+REVOKE ALL ON TABLE public.lockers FROM anon, authenticated;
+REVOKE ALL ON TABLE public.bookings FROM anon, authenticated;
+REVOKE ALL ON TABLE public.telemetry_logs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.alerts FROM anon, authenticated;
+REVOKE ALL ON TABLE public.company_members FROM anon, authenticated;
+REVOKE ALL ON TABLE public.support_tickets FROM anon, authenticated;
+REVOKE ALL ON TABLE public.audit_logs FROM anon, authenticated;
+
+-- Chặn hai đơn ACTIVE trên cùng tủ và giảm nguy cơ trùng OTP đang còn hiệu lực.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bookings_one_active_per_locker
+    ON public.bookings (locker_id) WHERE status = 'ACTIVE';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bookings_active_shipper_otp
+    ON public.bookings (shipper_otp) WHERE status = 'ACTIVE';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bookings_active_receiver_otp
+    ON public.bookings (receiver_otp) WHERE status = 'ACTIVE';

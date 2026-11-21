@@ -19,6 +19,7 @@ $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 // ------------------------------------------------------------------------------
 if ($method === 'GET') {
     $user = requireAuthUser(false);
+    sweepExpiredBookings();
 
     $lockersRes = supabaseRequest('GET', '/rest/v1/lockers?select=*&order=slot.asc');
     if (!$lockersRes['ok']) {
@@ -27,10 +28,11 @@ if ($method === 'GET') {
     $lockers = is_array($lockersRes['data']) ? $lockersRes['data'] : [];
 
     // Lấy bookings (Công ty xem tất cả; Cá nhân xem đơn mình gửi hoặc nhận)
-    $bookingQuery = '/rest/v1/bookings?select=*&order=created_at.desc&limit=50';
+    $bookingSelect = 'id,locker_id,slot,category,target_temp,sender_id,sender_email,sender_name,recipient_email,expires_at,status,created_at,collected_at';
+    $bookingQuery = '/rest/v1/bookings?select=' . $bookingSelect . '&order=created_at.desc&limit=50';
     if (!$user['is_company']) {
         $emailEnc = rawurlencode($user['email']);
-        $bookingQuery = '/rest/v1/bookings?select=*&or=(sender_email.eq.' . $emailEnc . ',recipient_email.eq.' . $emailEnc . ')&order=created_at.desc&limit=50';
+        $bookingQuery = '/rest/v1/bookings?select=' . $bookingSelect . '&or=(sender_email.eq.' . $emailEnc . ',recipient_email.eq.' . $emailEnc . ')&order=created_at.desc&limit=50';
     }
     $bookingsRes = supabaseRequest('GET', $bookingQuery);
     $bookings = ($bookingsRes['ok'] && is_array($bookingsRes['data'])) ? $bookingsRes['data'] : [];
@@ -41,21 +43,33 @@ if ($method === 'GET') {
     $availableCount = 0;
     $occupiedCount = 0;
 
+    $nowTs = time();
     foreach ($lockers as $l) {
+        $lockUntil = !empty($l['lockout_until']) ? strtotime((string) $l['lockout_until']) : null;
+        if (($l['status'] ?? '') === 'LOCKOUT' && ($lockUntil === null || $lockUntil <= $nowTs)) {
+            $restored = !empty($l['has_item']) ? 'OCCUPIED' : (!empty($l['active_receiver_otp']) ? 'WAITING_DROP' : 'AVAILABLE');
+            supabaseRequest('PATCH', '/rest/v1/lockers?id=eq.' . (int) $l['id'], [
+                'status' => $restored,
+                'wrong_attempts' => 0,
+                'lockout_until' => null,
+                'updated_at' => gmdate('c'),
+            ], ['Prefer: return=minimal']);
+            $l['status'] = $restored;
+            $l['wrong_attempts'] = 0;
+            $l['lockout_until'] = null;
+        }
         $ai = analyzeThermalHealth($l);
         $l['ai_analysis'] = $ai;
         if (($l['status'] ?? '') === 'AVAILABLE') {
             $availableCount++;
-        } elseif (($l['status'] ?? '') === 'OCCUPIED') {
+        } elseif (in_array($l['status'] ?? '', ['OCCUPIED', 'WAITING_DROP', 'OPEN'], true)) {
             $occupiedCount++;
         }
-        if (($l['status'] ?? '') === 'ERROR' || empty($l['online']) || $ai['has_anomaly']) {
+        if (in_array($l['status'] ?? '', ['ERROR', 'LOCKOUT'], true) || empty($l['online']) || $ai['has_anomaly']) {
             $issueCount++;
         }
-        // Ẩn mã OTP khỏi API trả về cho người không phải admin
-        if (!$user['is_company']) {
-            unset($l['active_shipper_otp'], $l['active_receiver_otp']);
-        }
+        // OTP không thuộc API danh sách, kể cả với admin.
+        unset($l['active_shipper_otp'], $l['active_receiver_otp']);
         $enrichedLockers[] = $l;
     }
 
@@ -75,6 +89,7 @@ if ($method === 'GET') {
         'lockers' => $enrichedLockers,
         'bookings' => $bookings,
         'alerts' => $alerts,
+        'user_role' => $user['role'],
         'server_time' => gmdate('c'),
     ]);
 }
@@ -203,7 +218,5 @@ jsonResponse([
     'locker_id' => $lockerId,
     'pending_cmd' => $updatedLocker['pending_cmd'] ?? null,
     'target_temp' => (float) ($updatedLocker['target_temp'] ?? 25.0),
-    'shipper_otp' => $updatedLocker['active_shipper_otp'] ?? null,
-    'receiver_otp' => $updatedLocker['active_receiver_otp'] ?? null,
     'ai_analysis' => $aiResult,
 ]);

@@ -60,7 +60,7 @@ function pageStart(string $title, string $active = '', string $area = 'app'): vo
             <div class="topbar-actions"><a class="topbar-help" href="support.php"><?= icon('support') ?><span>Trợ giúp</span></a><span class="topbar-divider"></span><a class="avatar" href="settings.php" data-user-initials aria-label="Tài khoản của tôi">SL</a></div>
         </header>
         <main id="main-content" class="app-content">
-            <div class="environment-note" id="iot-live-banner"><span class="status-dot" id="ui-conn-dot"></span><span id="ui-conn-status">Đang kết nối Supabase + MQTT Broker (Wokwi Realtime)...</span></div>
+            <div class="environment-note"><span class="status-dot"></span><span>Đang xác thực và đồng bộ dữ liệu vận hành…</span></div>
 <?php else: ?>
     <header class="site-header"><div class="site-header-inner"><?= brand() ?><button class="icon-button site-menu-toggle" data-toggle-site-menu aria-controls="site-navigation" aria-expanded="false" aria-label="Mở menu"><?= icon('menu') ?></button><nav id="site-navigation" class="site-navigation"><a href="index.php" <?= $active === 'home' ? 'aria-current="page"' : '' ?>>Trang chủ</a><a href="index.php#solutions">Giải pháp</a><a href="index.php#how-it-works">Cách hoạt động</a><a href="support.php" <?= $active === 'support' ? 'aria-current="page"' : '' ?>>Hỗ trợ</a><span class="site-nav-actions"><a class="button button-dark button-sm" href="login.php" data-guest-only>Đăng nhập <?= icon('arrow') ?></a><a href="settings.php" class="site-user-pill" data-user-only hidden data-user-name>Tài khoản</a><a class="button button-dark button-sm" href="dashboard.php" data-user-only hidden>Vào không gian <?= icon('arrow') ?></a></span></nav></div></header>
     <main id="main-content" class="<?= $area === 'auth' ? 'auth-main' : '' ?>">
@@ -82,7 +82,7 @@ function pageEnd(array $scripts = []): void
     echo '<script>try{var h=JSON.parse(localStorage.getItem("smart_locker_session_hint")||"null");if(h&&h.accountType){var c=h.accountType==="company",m={"[data-user-name]":h.name,"[data-user-email]":h.email,"[data-user-initials]":h.initials,"[data-company-name]":h.company||(c?"Không gian doanh nghiệp":"Chưa liên kết công ty"),"[data-workspace-label]":c?(h.company||"Không gian doanh nghiệp"):"Không gian người dùng","[data-workspace-role]":c?"Không gian doanh nghiệp · Quản trị":(h.company?"Thành viên · "+h.company:"Tài khoản cá nhân"),"[data-workspace-crumb]":c?"Không gian doanh nghiệp":"Không gian người dùng","[data-account-type-label]":c?"Doanh nghiệp (Quản trị)":"Người dùng","[data-workspace-panel-title]":c?"Không gian doanh nghiệp":"Không gian người dùng"};for(var s in m){document.querySelectorAll(s).forEach(function(el){if(el.matches("input"))el.value=m[s];else el.textContent=m[s];});}document.querySelectorAll("[data-user-only]").forEach(function(el){el.hidden=false;});document.querySelectorAll("[data-guest-only]").forEach(function(el){el.hidden=true;});document.querySelectorAll("[data-company-only]").forEach(function(el){el.hidden=!c;});document.querySelectorAll("[data-personal-only]").forEach(function(el){el.hidden=c;});if(document.body.dataset.activePage==="dashboard"&&h.name){var t=document.querySelector(".page-heading h1"),e=document.querySelector(".page-heading .eyebrow");if(t)t.textContent="Chào "+h.name+", một ngày tốt lành!";if(e)e.textContent=c?"KHÔNG GIAN DOANH NGHIỆP":"KHÔNG GIAN NGƯỜI DÙNG";}}}catch(_){}</script>';
     echo '<script src="config/supabase.js"></script>';
     echo '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>';
-    echo '<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script><script src="assets/js/supabase-client.js"></script><script src="assets/js/app.js"></script><script src="assets/js/auth.js"></script><script src="assets/js/api.js"></script>';
+    echo '<script src="assets/js/supabase-client.js"></script><script src="assets/js/app.js"></script><script src="assets/js/auth.js"></script><script src="assets/js/api.js"></script>';
     foreach ($scripts as $script) echo '<script src="assets/js/' . e($script) . '"></script>';
     echo '</body></html>';
 }
@@ -90,10 +90,9 @@ function pageHeading(string $eyebrow, string $title, string $description, string
 {
     echo '<div class="page-heading"><div><div class="eyebrow">' . e($eyebrow) . '</div><h1>' . e($title) . '</h1><p>' . e($description) . '</p></div><div class="heading-actions">' . $actions . '</div></div>';
 }
-function statCard(string $label, $value, string $glyph, string $foot, string $tone = '', string $statKey = ''): void
+function statCard(string $label, $value, string $glyph, string $foot, string $tone = ''): void
 {
-    $attr = $statKey !== '' ? ' data-stat="' . e($statKey) . '"' : '';
-    echo '<article class="stat-card"><div class="stat-top"><span>' . e($label) . '</span><span class="stat-icon ' . e($tone) . '">' . icon($glyph) . '</span></div><strong class="stat-value"' . $attr . '>' . e($value) . '</strong><small>' . e($foot) . '</small></article>';
+    echo '<article class="stat-card"><div class="stat-top"><span>' . e($label) . '</span><span class="stat-icon ' . e($tone) . '">' . icon($glyph) . '</span></div><strong class="stat-value">' . e($value) . '</strong><small>' . e($foot) . '</small></article>';
 }
 function bookingTable(array $bookings, bool $compact = false): void
 {
@@ -101,7 +100,7 @@ function bookingTable(array $bookings, bool $compact = false): void
         echo '<div class="empty-state"><span>' . icon('box') . '</span><h3>Chưa có giao dịch nào</h3><p>Giao dịch gửi và nhận hàng của bạn sẽ xuất hiện tại đây.</p><a class="button button-light button-sm" href="lockers.php">Gửi kiện hàng đầu tiên ' . icon('arrow') . '</a></div>';
         return;
     }
-    echo '<div class="table-wrap"><table><thead><tr><th>Giao dịch</th><th>Ngăn tủ</th><th>Người nhận</th><th>Thời gian</th><th>Trạng thái</th></tr></thead><tbody data-live-bookings>';
+    echo '<div class="table-wrap"><table><thead><tr><th>Giao dịch</th><th>Ngăn tủ</th><th>Người nhận</th><th>Thời gian</th><th>Trạng thái</th></tr></thead><tbody>';
     foreach ($bookings as $booking) echo '<tr><td><strong class="table-title">#SL' . sprintf('%05d', $booking['id']) . '</strong><small>' . e(categoryName($booking['category'])) . '</small></td><td><span class="table-locker">' . icon('locker') . ' Tủ ' . sprintf('%02d', $booking['slot']) . '</span></td><td>' . e($booking['recipient_email']) . '</td><td>' . e(displayDate($booking['created_at'])) . '</td><td>' . statusBadge($booking['status']) . '</td></tr>';
     echo '</tbody></table></div>';
 }

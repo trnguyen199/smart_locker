@@ -38,6 +38,7 @@ $patchRes = supabaseRequest('PATCH', '/rest/v1/lockers?id=eq.' . $lockerId, [
     'active_shipper_otp' => null,
     'active_receiver_otp' => null,
     'wrong_attempts' => 0,
+    'lockout_until' => null,
     'online' => true,
     'pending_cmd' => 'REMOTE_LOCK',
     'updated_at' => gmdate('c'),

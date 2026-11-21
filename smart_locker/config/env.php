@@ -1,32 +1,16 @@
 <?php
-// [VẤN ĐÁP]: File tải biến môi trường từ .env giúp tách biệt Secret Key khỏi mã nguồn PHP.
+// [VẤN ĐÁP]: Tải biến môi trường từ `.env` giúp tách hoàn toàn Secret Key khỏi mã nguồn PHP.
 declare(strict_types=1);
 
-function slLoadEnv(?string $preferredPath = null): array
+function slLoadEnv(string $envPath): array
 {
     static $cache = null;
     if ($cache !== null) {
         return $cache;
     }
 
-    $candidates = array_filter([
-        $preferredPath,
-        __DIR__ . '/../.env',
-        __DIR__ . '/../../../.env',
-        getcwd() . '/.env',
-        getcwd() . '/smart_locker-main/smart_locker/.env',
-    ]);
-
-    $envPath = null;
-    foreach ($candidates as $candidate) {
-        if (is_file($candidate) && is_readable($candidate)) {
-            $envPath = $candidate;
-            break;
-        }
-    }
-
     $cache = [];
-    if (!$envPath) {
+    if (!is_file($envPath) || !is_readable($envPath)) {
         return $cache;
     }
 
@@ -50,34 +34,14 @@ function slLoadEnv(?string $preferredPath = null): array
         $cache[$key] = $val;
     }
 
-    // Tự động đồng bộ giữa chuẩn mới SUPABASE_SECRET_KEY và tên cũ SUPABASE_SERVICE_ROLE_KEY
-    if (!empty($cache['SUPABASE_SECRET_KEY']) && empty($cache['SUPABASE_SERVICE_ROLE_KEY'])) {
-        $cache['SUPABASE_SERVICE_ROLE_KEY'] = $cache['SUPABASE_SECRET_KEY'];
-    } elseif (!empty($cache['SUPABASE_SERVICE_ROLE_KEY']) && empty($cache['SUPABASE_SECRET_KEY'])) {
-        $cache['SUPABASE_SECRET_KEY'] = $cache['SUPABASE_SERVICE_ROLE_KEY'];
-    }
-
-    if (!empty($cache['SUPABASE_PUBLISHABLE_KEY']) && empty($cache['SUPABASE_ANON_KEY'])) {
-        $cache['SUPABASE_ANON_KEY'] = $cache['SUPABASE_PUBLISHABLE_KEY'];
-    } elseif (!empty($cache['SUPABASE_ANON_KEY']) && empty($cache['SUPABASE_PUBLISHABLE_KEY'])) {
-        $cache['SUPABASE_PUBLISHABLE_KEY'] = $cache['SUPABASE_ANON_KEY'];
-    }
-
     return $cache;
 }
 
 function slEnv(string $key, string $default = ''): string
 {
-    $env = slLoadEnv();
+    $env = slLoadEnv(__DIR__ . '/../.env');
     if (isset($env[$key]) && $env[$key] !== '') {
         return $env[$key];
-    }
-    // Hỗ trợ alias chéo SUPABASE_SECRET_KEY <-> SUPABASE_SERVICE_ROLE_KEY
-    if ($key === 'SUPABASE_SERVICE_ROLE_KEY' && isset($env['SUPABASE_SECRET_KEY']) && $env['SUPABASE_SECRET_KEY'] !== '') {
-        return $env['SUPABASE_SECRET_KEY'];
-    }
-    if ($key === 'SUPABASE_SECRET_KEY' && isset($env['SUPABASE_SERVICE_ROLE_KEY']) && $env['SUPABASE_SERVICE_ROLE_KEY'] !== '') {
-        return $env['SUPABASE_SERVICE_ROLE_KEY'];
     }
     $sys = getenv($key);
     if ($sys !== false && $sys !== '') {

@@ -2,7 +2,8 @@
 /**
  * FILE: api/create_booking.php
  * Chức năng: Tạo giao dịch gửi hàng mới, chống xung đột 2 người đặt cùng 1 ngăn (Atomic Conditional PATCH),
- * sinh mã Smart Prefix OTP (đầu 1 lạnh, đầu 2 nóng, đầu 3 thường), lưu Supabase và gắn lệnh chờ gửi mạch ESP32.
+ * sinh mã Smart Prefix OTP + thời hạn hết hạn `expires_at`, chuyển tủ sang `WAITING_DROP` (chờ bỏ hàng)
+ * và trả về lệnh MQTT/Kiosk để bản mô phỏng của Lân và mạch của Duy cập nhật ngay.
  */
 declare(strict_types=1);
 
@@ -16,6 +17,17 @@ $lockerId = (int) ($body['locker_id'] ?? 0);
 $category = strtoupper(trim((string) ($body['category'] ?? 'PARCEL')));
 $recipientEmail = trim((string) ($body['recipient_email'] ?? ''));
 $targetTemp = isset($body['target_temp']) ? (float) $body['target_temp'] : 25.0;
+
+// Hỗ trợ tùy chỉnh thời hạn OTP (mặc định 24 giờ; cho phép đặt theo phút để demo ca EXPIRED trước hội đồng)
+$expiresInMinutes = isset($body['expires_in_minutes']) ? (int) $body['expires_in_minutes'] : 0;
+$expiresInHours = isset($body['expires_in_hours']) ? (int) $body['expires_in_hours'] : 24;
+if ($expiresInMinutes > 0) {
+    $expiresInMinutes = max(1, min(10080, $expiresInMinutes));
+    $expiresAtIso = gmdate('c', time() + ($expiresInMinutes * 60));
+} else {
+    $expiresInHours = max(1, min(168, $expiresInHours));
+    $expiresAtIso = gmdate('c', time() + ($expiresInHours * 3600));
+}
 
 $allowedCategories = ['FOOD', 'DRINK', 'HOT_FOOD', 'PARCEL'];
 if ($lockerId <= 0) {
@@ -31,7 +43,6 @@ if ($targetTemp < 2.0 || $targetTemp > 65.0) {
     jsonError('Nhiệt độ mục tiêu phải nằm trong khoảng 2°C đến 65°C.', 422);
 }
 
-// Kiểm tra thông tin tủ hiện tại
 $checkRes = supabaseRequest('GET', '/rest/v1/lockers?id=eq.' . $lockerId . '&select=*');
 if (!$checkRes['ok'] || empty($checkRes['data'])) {
     jsonError('Không tìm thấy ngăn tủ đã chọn.', 404);
@@ -39,24 +50,25 @@ if (!$checkRes['ok'] || empty($checkRes['data'])) {
 $locker = $checkRes['data'][0];
 
 if (($locker['type'] ?? 'NORMAL') === 'NORMAL' && $category !== 'PARCEL' && $targetTemp < 20.0) {
-    $targetTemp = 25.0; // Ngăn thường không làm lạnh sâu
+    $targetTemp = 25.0;
 }
 
 $shipperOtp = generateSmartPrefixOtp($category, $targetTemp);
 $receiverOtp = generateReceiverOtp();
 
 // [VẤN ĐÁP]: Chống Race Condition bằng Conditional Atomic PATCH (`status=eq.AVAILABLE&online=eq.true`).
-// Nếu 2 người bấm đặt cùng 1 mili-giây, chỉ người đầu tiên cập nhật thành công; người thứ 2 nhận mảng rỗng -> báo HTTP 409 Conflict.
+// Nếu 2 người đặt trùng 1 ngăn cùng mili-giây, chỉ người đầu tiên giữ được ngăn; người thứ 2 nhận HTTP 409 Conflict.
 $lockRes = supabaseRequest(
     'PATCH',
     '/rest/v1/lockers?id=eq.' . $lockerId . '&status=eq.AVAILABLE&online=eq.true',
     [
-        'status' => 'OCCUPIED',
+        'status' => 'WAITING_DROP',
         'target_temp' => $targetTemp,
         'active_category' => $category,
         'active_shipper_otp' => $shipperOtp,
         'active_receiver_otp' => $receiverOtp,
         'wrong_attempts' => 0,
+        'lockout_until' => null,
         'pending_cmd' => 'CREATE_ORDER',
         'updated_at' => gmdate('c'),
     ],
@@ -69,7 +81,6 @@ if (!$lockRes['ok'] || empty($lockRes['data'])) {
 
 $updatedLocker = $lockRes['data'][0];
 
-// Tạo bản ghi giao dịch trong bảng bookings
 $bookingRes = supabaseRequest('POST', '/rest/v1/bookings', [
     'locker_id' => $lockerId,
     'slot' => (int) ($updatedLocker['slot'] ?? $lockerId),
@@ -81,11 +92,11 @@ $bookingRes = supabaseRequest('POST', '/rest/v1/bookings', [
     'recipient_email' => $recipientEmail,
     'shipper_otp' => $shipperOtp,
     'receiver_otp' => $receiverOtp,
+    'expires_at' => $expiresAtIso,
     'status' => 'ACTIVE',
 ], ['Prefer: return=representation']);
 
 if (!$bookingRes['ok'] || empty($bookingRes['data'])) {
-    // Rollback trạng thái tủ nếu ghi booking lỗi
     supabaseRequest('PATCH', '/rest/v1/lockers?id=eq.' . $lockerId, [
         'status' => 'AVAILABLE',
         'active_shipper_otp' => null,
@@ -96,16 +107,29 @@ if (!$bookingRes['ok'] || empty($bookingRes['data'])) {
 }
 
 $booking = $bookingRes['data'][0];
-logAuditEvent($user['email'], $user['is_company'] ? 'COMPANY_ADMIN' : 'USER', 'CREATE_BOOKING', $lockerId, [
+logAuditEvent($user['email'], $user['role'], 'CREATE_BOOKING', $lockerId, [
     'booking_id' => $booking['id'],
     'category' => $category,
     'target_temp' => $targetTemp,
+    'expires_at' => $expiresAtIso,
 ]);
 
 jsonResponse([
     'ok' => true,
-    'message' => 'Tạo đơn thành công! Mã OTP đã được gửi xuống Tủ ' . sprintf('%02d', $updatedLocker['slot']) . '.',
-    'booking' => $booking,
+    'message' => 'Tạo đơn thành công! Tủ ' . sprintf('%02d', $updatedLocker['slot']) . ' đang chờ bỏ hàng (Smart OTP đã gửi xuống tủ).',
+    // Chỉ trả OTP cho người vừa tạo đơn qua kết nối HTTPS; không đưa vào API danh sách/MQTT.
+    'booking' => [
+        'id' => (int) $booking['id'],
+        'locker_id' => $lockerId,
+        'slot' => (int) $updatedLocker['slot'],
+        'category' => $category,
+        'target_temp' => $targetTemp,
+        'recipient_email' => $recipientEmail,
+        'shipper_otp' => $shipperOtp,
+        'receiver_otp' => $receiverOtp,
+        'expires_at' => $expiresAtIso,
+        'status' => 'ACTIVE',
+    ],
     'locker' => $updatedLocker,
     'mqtt_command' => [
         'cmd' => 'CREATE_ORDER',
@@ -113,8 +137,7 @@ jsonResponse([
         'slot' => (int) $updatedLocker['slot'],
         'category' => $category,
         'target_temp' => $targetTemp,
-        'shipper_otp' => $shipperOtp,
-        'receiver_otp' => $receiverOtp,
+        'expires_at' => $expiresAtIso,
         'timestamp' => time(),
     ],
 ], 201);

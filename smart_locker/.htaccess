@@ -1,4 +1,8 @@
 Options -Indexes
-<FilesMatch "(?i)\.(sqlite|sqlite-wal|sqlite-shm|env)$">
+<FilesMatch "(?i)(^\.|\.(sqlite|sqlite-wal|sqlite-shm|env|ini|log|md|mjs|sql|example)$)">
     Require all denied
 </FilesMatch>
+
+RewriteEngine On
+RewriteRule ^(tests|supabase)/ - [R=404,L,NC]
+RewriteRule ^config/(?!supabase\.js$) - [R=404,L,NC]

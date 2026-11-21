@@ -2,7 +2,9 @@
 // Chỉ cung cấp hàm hiển thị và dữ liệu minh họa. Không có kết nối cơ sở dữ liệu.
 require_once __DIR__ . '/pagination.php';
 header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
 header('Referrer-Policy: same-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
 header('Cache-Control: no-store');
 
 function e($value): string { return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8'); }
