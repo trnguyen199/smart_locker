@@ -1,0 +1,396 @@
+{
+  "version": 1,
+  "author": "Ha Ngoc Hieu - Smart Locker IoT (Nhom 4)",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 40,
+      "left": 20,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-lcd2004",
+      "id": "lcd1",
+      "top": -190,
+      "left": -20,
+      "attrs": {
+        "pins": "i2c",
+        "i2cAddress": "0x27"
+      }
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -140,
+      "left": 320,
+      "attrs": {
+        "temperature": "26.5",
+        "humidity": "60"
+      }
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "servo1",
+      "top": 20,
+      "left": 290,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_cooler",
+      "top": -60,
+      "left": -150,
+      "attrs": {
+        "color": "blue",
+        "label": "COOLER"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_cooler",
+      "top": 10,
+      "left": -140,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_heater",
+      "top": -60,
+      "left": -85,
+      "attrs": {
+        "color": "red",
+        "label": "HEATER"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_heater",
+      "top": 10,
+      "left": -75,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "sw_item",
+      "top": 150,
+      "left": 300,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": 170,
+      "left": -150,
+      "attrs": {
+        "volume": "0.3"
+      }
+    },
+    {
+      "type": "wokwi-membrane-keypad",
+      "id": "keypad1",
+      "top": 270,
+      "left": -40,
+      "attrs": {}
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "lcd1:GND",
+      "esp:GND.1",
+      "black",
+      [
+        "h-20",
+        "v220"
+      ]
+    ],
+    [
+      "lcd1:VCC",
+      "esp:5V",
+      "red",
+      [
+        "h-30",
+        "v390"
+      ]
+    ],
+    [
+      "lcd1:SDA",
+      "esp:21",
+      "green",
+      [
+        "h-10",
+        "v260"
+      ]
+    ],
+    [
+      "lcd1:SCL",
+      "esp:22",
+      "yellow",
+      [
+        "h-15",
+        "v230"
+      ]
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      [
+        "v20",
+        "h-330",
+        "v100"
+      ]
+    ],
+    [
+      "dht1:SDA",
+      "esp:4",
+      "cyan",
+      [
+        "v40",
+        "h-180",
+        "v240"
+      ]
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.2",
+      "black",
+      [
+        "v30",
+        "h-150",
+        "v200"
+      ]
+    ],
+    [
+      "servo1:PWM",
+      "esp:13",
+      "orange",
+      [
+        "h-40",
+        "v130",
+        "h-240",
+        "v-20"
+      ]
+    ],
+    [
+      "servo1:V+",
+      "esp:5V",
+      "red",
+      [
+        "h-30",
+        "v140",
+        "h-260"
+      ]
+    ],
+    [
+      "servo1:GND",
+      "esp:GND.2",
+      "black",
+      [
+        "h-20",
+        "v10"
+      ]
+    ],
+    [
+      "esp:2",
+      "r_cooler:2",
+      "blue",
+      [
+        "h20",
+        "v-130",
+        "h-270"
+      ]
+    ],
+    [
+      "r_cooler:1",
+      "led_cooler:A",
+      "blue",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "led_cooler:C",
+      "esp:GND.1",
+      "black",
+      [
+        "v20",
+        "h140"
+      ]
+    ],
+    [
+      "esp:15",
+      "r_heater:2",
+      "red",
+      [
+        "h30",
+        "v-150",
+        "h-210"
+      ]
+    ],
+    [
+      "r_heater:1",
+      "led_heater:A",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "led_heater:C",
+      "esp:GND.1",
+      "black",
+      [
+        "v20",
+        "h80"
+      ]
+    ],
+    [
+      "sw_item:1",
+      "esp:GND.2",
+      "black",
+      [
+        "v-20",
+        "h-120"
+      ]
+    ],
+    [
+      "sw_item:2",
+      "esp:5",
+      "purple",
+      [
+        "v-10",
+        "h-150"
+      ]
+    ],
+    [
+      "sw_item:3",
+      "esp:3V3",
+      "red",
+      [
+        "v40",
+        "h-320",
+        "v-140"
+      ]
+    ],
+    [
+      "bz1:1",
+      "esp:GND.1",
+      "black",
+      [
+        "v20",
+        "h140"
+      ]
+    ],
+    [
+      "bz1:2",
+      "esp:12",
+      "gold",
+      [
+        "v10",
+        "h120",
+        "v-30"
+      ]
+    ],
+    [
+      "keypad1:R1",
+      "esp:19",
+      "violet",
+      [
+        "v-30",
+        "h130",
+        "v-120"
+      ]
+    ],
+    [
+      "keypad1:R2",
+      "esp:18",
+      "violet",
+      [
+        "v-25",
+        "h135",
+        "v-105"
+      ]
+    ],
+    [
+      "keypad1:R3",
+      "esp:17",
+      "violet",
+      [
+        "v-20",
+        "h140",
+        "v-90"
+      ]
+    ],
+    [
+      "keypad1:R4",
+      "esp:16",
+      "violet",
+      [
+        "v-15",
+        "h145",
+        "v-75"
+      ]
+    ],
+    [
+      "keypad1:C1",
+      "esp:25",
+      "gray",
+      [
+        "v-20",
+        "h-120",
+        "v-140"
+      ]
+    ],
+    [
+      "keypad1:C2",
+      "esp:26",
+      "gray",
+      [
+        "v-25",
+        "h-125",
+        "v-125"
+      ]
+    ],
+    [
+      "keypad1:C3",
+      "esp:27",
+      "gray",
+      [
+        "v-30",
+        "h-130",
+        "v-110"
+      ]
+    ],
+    [
+      "keypad1:C4",
+      "esp:33",
+      "gray",
+      [
+        "v-35",
+        "h-135",
+        "v-155"
+      ]
+    ]
+  ],
+  "dependencies": {}
+}

@@ -1,10 +1,10 @@
 <?php
+declare(strict_types=1);
 /**
  * FILE: api.php
- * Phụ trách: Ngọc Hiếu
- * Chức năng: Cổng định tuyến tập trung (API Gateway) + Endpoint đồng bộ dành riêng cho mạch ESP32/Wokwi (?action=iot_sync).
+ * Phụ trách: Hà Ngọc Hiếu
+ * Chức năng: Cổng định tuyến tập trung (API Gateway) hỗ trợ Web, Kiosk và ESP32/Wokwi.
  */
-declare(strict_types=1);
 
 require_once __DIR__ . '/api/bootstrap.php';
 
@@ -14,7 +14,7 @@ switch ($action) {
     case 'health':
         jsonResponse([
             'ok' => true,
-            'service' => 'Smart Locker PHP + Supabase AIoT Gateway',
+            'service' => 'Smart Locker PHP + Supabase AIoT Gateway v5',
             'author' => 'Ha Ngoc Hieu',
             'mqtt_wss' => slEnv('MQTT_WSS_URL', 'wss://broker.emqx.io:8084/mqtt'),
             'mqtt_topic_prefix' => slEnv('MQTT_TOPIC_PREFIX', 'uth/iot/smartlocker/nhom4'),
@@ -22,8 +22,19 @@ switch ($action) {
         ]);
         break;
 
+    case 'dashboard_stats':
+        require __DIR__ . '/api/dashboard_stats.php';
+        break;
+
+    case 'cron_sweep':
+        require __DIR__ . '/api/cron_sweep.php';
+        break;
+
+    case 'mqtt_bridge':
+        require __DIR__ . '/api/mqtt_bridge.php';
+        break;
+
     case 'iot_sync':
-        // [VẤN ĐÁP]: Endpoint cầu nối HTTP cho mạch ESP32/Wokwi (chạy song song với MQTT để dự phòng khi Broker bận).
         $_GET['source'] = 'iot';
         require __DIR__ . '/api/lockers.php';
         break;
