@@ -1,0 +1,675 @@
+{
+  "version": 1,
+  "author": "Smart Locker",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 240,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "node_label",
+      "top": 170,
+      "left": -30,
+      "attrs": {
+        "text": "ESP32 NODE 3 | NGAN 07-09"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "title_07",
+      "top": -30,
+      "left": 300,
+      "attrs": {
+        "text": "NGAN 07 | COOL - NGAN MAT"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "servo_label_07",
+      "top": 10,
+      "left": 300,
+      "attrs": {
+        "text": "KHOA | GPIO13 | 0=KHOA, 90=MO"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "temp_label_07",
+      "top": 10,
+      "left": 535,
+      "attrs": {
+        "text": "NHIET DO | GPIO16"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "door_label_07",
+      "top": 10,
+      "left": 720,
+      "attrs": {
+        "text": "CUA | GPIO32 | TRAI=DONG"
+      }
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "lock_07",
+      "top": 65,
+      "left": 320,
+      "attrs": {
+        "horn": "single"
+      }
+    },
+    {
+      "type": "wokwi-ds18b20",
+      "id": "temp_07",
+      "top": 65,
+      "left": 540,
+      "attrs": {
+        "temperature": "5.5",
+        "deviceID": "000000000007"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "pullup_07",
+      "top": 100,
+      "left": 610,
+      "attrs": {
+        "value": "4700"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "door_07",
+      "top": 90,
+      "left": 750,
+      "attrs": {
+        "value": "",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "relay_label_07",
+      "top": 10,
+      "left": 900,
+      "attrs": {
+        "text": "LAM MAT | GPIO26"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "cool_relay_07",
+      "top": 55,
+      "left": 900,
+      "attrs": {
+        "transistor": "npn"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "cooling_07",
+      "top": 65,
+      "left": 1100,
+      "attrs": {
+        "color": "blue",
+        "label": "LAM MAT 07"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "cooling_r_07",
+      "top": 150,
+      "left": 1080,
+      "attrs": {
+        "value": "330"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "title_08",
+      "top": 250,
+      "left": 300,
+      "attrs": {
+        "text": "NGAN 08 | NORMAL - NGAN THUONG"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "servo_label_08",
+      "top": 290,
+      "left": 300,
+      "attrs": {
+        "text": "KHOA | GPIO14 | 0=KHOA, 90=MO"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "temp_label_08",
+      "top": 290,
+      "left": 535,
+      "attrs": {
+        "text": "NHIET DO | GPIO17"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "door_label_08",
+      "top": 290,
+      "left": 720,
+      "attrs": {
+        "text": "CUA | GPIO33 | TRAI=DONG"
+      }
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "lock_08",
+      "top": 345,
+      "left": 320,
+      "attrs": {
+        "horn": "single"
+      }
+    },
+    {
+      "type": "wokwi-ds18b20",
+      "id": "temp_08",
+      "top": 345,
+      "left": 540,
+      "attrs": {
+        "temperature": "26.1",
+        "deviceID": "000000000008"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "pullup_08",
+      "top": 380,
+      "left": 610,
+      "attrs": {
+        "value": "4700"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "door_08",
+      "top": 370,
+      "left": 750,
+      "attrs": {
+        "value": "",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "title_09",
+      "top": 530,
+      "left": 300,
+      "attrs": {
+        "text": "NGAN 09 | COOL - NGAN MAT"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "servo_label_09",
+      "top": 570,
+      "left": 300,
+      "attrs": {
+        "text": "KHOA | GPIO27 | 0=KHOA, 90=MO"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "temp_label_09",
+      "top": 570,
+      "left": 535,
+      "attrs": {
+        "text": "NHIET DO | GPIO18"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "door_label_09",
+      "top": 570,
+      "left": 720,
+      "attrs": {
+        "text": "CUA | GPIO25 | TRAI=DONG"
+      }
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "lock_09",
+      "top": 625,
+      "left": 320,
+      "attrs": {
+        "horn": "single"
+      }
+    },
+    {
+      "type": "wokwi-ds18b20",
+      "id": "temp_09",
+      "top": 625,
+      "left": 540,
+      "attrs": {
+        "temperature": "8.1",
+        "deviceID": "000000000009"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "pullup_09",
+      "top": 660,
+      "left": 610,
+      "attrs": {
+        "value": "4700"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "door_09",
+      "top": 650,
+      "left": 750,
+      "attrs": {
+        "value": "",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "relay_label_09",
+      "top": 570,
+      "left": 900,
+      "attrs": {
+        "text": "LAM MAT | GPIO19"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "cool_relay_09",
+      "top": 615,
+      "left": 900,
+      "attrs": {
+        "transistor": "npn"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "cooling_09",
+      "top": 625,
+      "left": 1100,
+      "attrs": {
+        "color": "blue",
+        "label": "LAM MAT 09"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "cooling_r_09",
+      "top": 710,
+      "left": 1080,
+      "attrs": {
+        "value": "330"
+      },
+      "rotate": 90
+    }
+  ],
+  "connections": [
+    [
+      "esp:13",
+      "lock_07:PWM",
+      "#f59e0b",
+      [
+        "h50",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "lock_07:V+",
+      "red",
+      [
+        "h-65",
+        "v-120",
+        "*"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "lock_07:GND",
+      "black",
+      [
+        "h-40",
+        "*"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "temp_07:VCC",
+      "red",
+      [
+        "h-85",
+        "*"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "temp_07:GND",
+      "black",
+      [
+        "h-40",
+        "*"
+      ]
+    ],
+    [
+      "esp:16",
+      "temp_07:DQ",
+      "#2563eb",
+      [
+        "h105",
+        "*"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "pullup_07:1",
+      "red",
+      []
+    ],
+    [
+      "pullup_07:2",
+      "temp_07:DQ",
+      "#2563eb",
+      []
+    ],
+    [
+      "esp:32",
+      "door_07:2",
+      "#16a34a",
+      [
+        "h-110",
+        "v-80",
+        "*"
+      ]
+    ],
+    [
+      "door_07:1",
+      "esp:GND.1",
+      "black",
+      [
+        "v25",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "cool_relay_07:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "cool_relay_07:GND",
+      "black",
+      []
+    ],
+    [
+      "esp:26",
+      "cool_relay_07:IN",
+      "#9333ea",
+      [
+        "h-180",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "cool_relay_07:COM",
+      "red",
+      []
+    ],
+    [
+      "cool_relay_07:NO",
+      "cooling_r_07:2",
+      "#0891b2",
+      []
+    ],
+    [
+      "cooling_r_07:1",
+      "cooling_07:A",
+      "#0891b2",
+      []
+    ],
+    [
+      "cooling_07:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "esp:14",
+      "lock_08:PWM",
+      "#f59e0b",
+      [
+        "h65",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "lock_08:V+",
+      "red",
+      [
+        "h-65",
+        "v160",
+        "*"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "lock_08:GND",
+      "black",
+      [
+        "h-40",
+        "*"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "temp_08:VCC",
+      "red",
+      [
+        "h-85",
+        "*"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "temp_08:GND",
+      "black",
+      [
+        "h-40",
+        "*"
+      ]
+    ],
+    [
+      "esp:17",
+      "temp_08:DQ",
+      "#2563eb",
+      [
+        "h120",
+        "*"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "pullup_08:1",
+      "red",
+      []
+    ],
+    [
+      "pullup_08:2",
+      "temp_08:DQ",
+      "#2563eb",
+      []
+    ],
+    [
+      "esp:33",
+      "door_08:2",
+      "#16a34a",
+      [
+        "h-130",
+        "v200",
+        "*"
+      ]
+    ],
+    [
+      "door_08:1",
+      "esp:GND.1",
+      "black",
+      [
+        "v25",
+        "*"
+      ]
+    ],
+    [
+      "esp:27",
+      "lock_09:PWM",
+      "#f59e0b",
+      [
+        "h80",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "lock_09:V+",
+      "red",
+      [
+        "h-65",
+        "v440",
+        "*"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "lock_09:GND",
+      "black",
+      [
+        "h-40",
+        "*"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "temp_09:VCC",
+      "red",
+      [
+        "h-85",
+        "*"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "temp_09:GND",
+      "black",
+      [
+        "h-40",
+        "*"
+      ]
+    ],
+    [
+      "esp:18",
+      "temp_09:DQ",
+      "#2563eb",
+      [
+        "h135",
+        "*"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "pullup_09:1",
+      "red",
+      []
+    ],
+    [
+      "pullup_09:2",
+      "temp_09:DQ",
+      "#2563eb",
+      []
+    ],
+    [
+      "esp:25",
+      "door_09:2",
+      "#16a34a",
+      [
+        "h-150",
+        "v480",
+        "*"
+      ]
+    ],
+    [
+      "door_09:1",
+      "esp:GND.1",
+      "black",
+      [
+        "v25",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "cool_relay_09:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "cool_relay_09:GND",
+      "black",
+      []
+    ],
+    [
+      "esp:19",
+      "cool_relay_09:IN",
+      "#9333ea",
+      [
+        "h-210",
+        "*"
+      ]
+    ],
+    [
+      "esp:5V",
+      "cool_relay_09:COM",
+      "red",
+      []
+    ],
+    [
+      "cool_relay_09:NO",
+      "cooling_r_09:2",
+      "#0891b2",
+      []
+    ],
+    [
+      "cooling_r_09:1",
+      "cooling_09:A",
+      "#0891b2",
+      []
+    ],
+    [
+      "cooling_09:C",
+      "esp:GND.1",
+      "black",
+      []
+    ]
+  ],
+  "dependencies": {}
+}

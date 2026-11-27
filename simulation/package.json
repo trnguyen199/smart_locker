@@ -1,0 +1,22 @@
+{
+  "name": "smart-locker-digital-twin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test -w backend",
+    "build": "npm run build --workspaces",
+    "format": "prettier --write frontend/src backend/src backend/test shared scripts README.md DESIGN.md",
+    "format:check": "prettier --check frontend/src backend/src backend/test shared scripts README.md DESIGN.md"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3"
+  }
+}

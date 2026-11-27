@@ -1,0 +1,12 @@
+{
+  "name": "smart-locker-unified",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:sim": "node simulation/backend/dist/backend/src/index.js",
+    "build:sim": "npm run build --prefix simulation",
+    "test:sim": "npm test --prefix simulation",
+    "typecheck:sim": "npm run typecheck --prefix simulation",
+    "test:web": "node tests/auth.mjs && node tests/security.mjs && node tests/api_smoke.mjs"
+  }
+}

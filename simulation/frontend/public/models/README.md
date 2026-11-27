@@ -1,0 +1,1 @@
+Place Smart_Locker_V2_OPEN.glb here. Run node scripts/inspect-glb.mjs from the project root before adapting any nodes for animation. Until a hinge is verified, GLB is a static reference and the procedural locker owns the animated door.
